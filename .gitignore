@@ -1,0 +1,21 @@
+# build output
+build/
+build-*/
+
+# imported Minecraft resources and screenshots (not redistributable)
+assets/
+screenshots/
+
+# local world and player state
+saves/
+
+# internal notes
+GEMINI.md
+
+# python cache
+tools/__pycache__/
+*.pyc
+
+# logs and temporary files
+*.log
+*.tmp
