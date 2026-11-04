@@ -12,9 +12,8 @@ saves/
 # internal notes
 GEMINI.md
 
-# python cache
-tools/__pycache__/
-*.pyc
+# tools and tests
+tools/
 
 # logs and temporary files
 *.log

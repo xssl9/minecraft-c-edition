@@ -64,27 +64,29 @@ else()
   message(STATUS "libvorbisfile not found; audio disabled")
 endif()
 
-add_executable(verify_all
-  tools/verify_all.c
-  src/assets.c
-  src/blocks.c
-  src/noise.c
-  src/world.c
-  src/render.c
-  src/player.c
-  src/ui.c
-  src/audio.c
-  src/settings.c
-  src/entity.c
-)
-target_include_directories(verify_all PRIVATE src third_party)
-if(MCED_USE_GL)
-  target_compile_definitions(verify_all PRIVATE MCED_USE_GL=1)
-  target_link_libraries(verify_all PRIVATE OpenGL::GL PkgConfig::SDL2 m)
-endif()
-if(VORBISFILE_LIB AND VORBIS_LIB AND OGG_LIB)
-  target_compile_definitions(verify_all PRIVATE MCED_HAVE_VORBIS=1)
-  target_link_libraries(verify_all PRIVATE ${VORBISFILE_LIB} ${VORBIS_LIB} ${OGG_LIB})
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_all.c")
+  add_executable(verify_all
+    tools/verify_all.c
+    src/assets.c
+    src/blocks.c
+    src/noise.c
+    src/world.c
+    src/render.c
+    src/player.c
+    src/ui.c
+    src/audio.c
+    src/settings.c
+    src/entity.c
+  )
+  target_include_directories(verify_all PRIVATE src third_party)
+  if(MCED_USE_GL)
+    target_compile_definitions(verify_all PRIVATE MCED_USE_GL=1)
+    target_link_libraries(verify_all PRIVATE OpenGL::GL PkgConfig::SDL2 m)
+  endif()
+  if(VORBISFILE_LIB AND VORBIS_LIB AND OGG_LIB)
+    target_compile_definitions(verify_all PRIVATE MCED_HAVE_VORBIS=1)
+    target_link_libraries(verify_all PRIVATE ${VORBISFILE_LIB} ${VORBIS_LIB} ${OGG_LIB})
+  endif()
 endif()
 
 # Keep the game runnable from the build directory as well as the source root.

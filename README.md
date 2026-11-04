@@ -6,17 +6,11 @@ The game generates an endless voxel world with biomes, caves, ores, trees, water
 
 Dependencies
 
-A C11 compiler, CMake 3.16 or newer, SDL2 development files, OpenGL development files, and optionally libvorbisfile, libvorbis and libogg for sound. The asset importer needs Python 3 and a local Minecraft 1.21.1 installation managed by PrismLauncher.
+A C11 compiler, CMake 3.16 or newer, SDL2 development files, OpenGL development files, and optionally libvorbisfile, libvorbis and libogg for sound.
 
 Building
 
-Import the assets first:
-
-python3 tools/extract_assets.py
-
-This reads the Minecraft client jar and asset store from the local machine and writes to the assets directory. No Mojang files are included in this repository.
-
-Then build:
+Build the project:
 
 cmake -S . -B build
 cmake --build build -j
