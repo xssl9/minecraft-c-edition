@@ -47,6 +47,7 @@ typedef struct {
 
     GLuint atlas_tex;
     GLuint menu_tex;
+    GLuint panorama_tex[6];
     GLuint logo_tex;
     GLuint font_tex;
     GLuint sun_tex;

@@ -3,6 +3,7 @@
 #include "blocks.h"
 
 #include <math.h>
+#include <time.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -13,6 +14,31 @@
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
 #include "stb_image.h"
 #pragma GCC diagnostic pop
+
+static GLuint load_panorama_texture(const char *path) {
+    int w = 0, h = 0, ch = 0;
+    uint8_t *data = stbi_load(path, &w, &h, &ch, 3);
+    if (!data)
+        return 0;
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+#if MCED_USE_GL
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+#else
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, 3, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+#endif
+    stbi_image_free(data);
+    return tex;
+}
 
 static GLuint load_texture_png(const char *path) {
     int w = 0, h = 0, ch = 0;
@@ -207,6 +233,13 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
         r->atlas_tex = upload_rgb(assets->atlas_rgb);
     if (assets->has_menu)
         r->menu_tex = upload_rgb(assets->menu_rgb);
+    for (int i = 0; i < 6; i++) {
+        char pano_path[1024];
+        snprintf(pano_path, sizeof(pano_path),
+                 "%s/minecraft/textures/gui/title/background/panorama_%d.png",
+                 assets->root, i);
+        r->panorama_tex[i] = load_panorama_texture(pano_path);
+    }
     if (assets->has_logo)
         r->logo_tex = upload_rgb(assets->logo_rgb);
 
@@ -337,6 +370,9 @@ void renderer_shutdown(Renderer *r) {
     free(r->scratch_verts);
     if (r->atlas_tex) glDeleteTextures(1, &r->atlas_tex);
     if (r->menu_tex) glDeleteTextures(1, &r->menu_tex);
+    for (int i = 0; i < 6; i++) {
+        if (r->panorama_tex[i]) glDeleteTextures(1, &r->panorama_tex[i]);
+    }
     if (r->logo_tex) glDeleteTextures(1, &r->logo_tex);
     if (r->font_tex) glDeleteTextures(1, &r->font_tex);
     if (r->sun_tex) glDeleteTextures(1, &r->sun_tex);
@@ -2334,14 +2370,137 @@ static void tex_quad(Renderer *r, GLuint tex, float x, float y, float w, float h
 }
 
 void renderer_menu_background(Renderer *r) {
-    if (!r->menu_tex)
+    if (!r->panorama_tex[0]) {
+        if (!r->menu_tex)
+            return;
+        float w = (float)(r->ui_width > 0 ? r->ui_width : r->width);
+        float h = (float)(r->ui_height > 0 ? r->ui_height : r->height);
+        float v0 = 0.21875f, v1 = 0.78125f;
+        tex_quad(r, r->menu_tex, 0, 0, w, h,
+                 0, v0, 1, v1, (Color3){1, 1, 1}, false);
         return;
+    }
+
+    /* 1. Setup 3D camera projection for the rotating skybox */
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+
+    float fov = 85.0f;
+    float aspect = (float)r->width / (float)(r->height > 0 ? r->height : 1);
+    float zNear = 0.05f, zFar = 10.0f;
+    float top = zNear * tanf(fov * 0.5f * MCED_DEG2RAD);
+    float bottom = -top;
+    float left = bottom * aspect;
+    float right = top * aspect;
+    glFrustum(left, right, bottom, top, zNear, zFar);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glEnable(GL_TEXTURE_2D);
+#if MCED_USE_GL
+    glDisable(GL_ALPHA_TEST);
+#endif
+
+    /* Rotation matching vanilla Minecraft Java Edition */
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    float time = (float)ts.tv_sec + (float)ts.tv_nsec * 1e-9f;
+    float yaw = time * 4.5f;
+    float pitch = sinf(time * 0.35f) * 4.0f;
+
+    glRotatef(pitch, 1.0f, 0.0f, 0.0f);
+    glRotatef(yaw, 0.0f, 1.0f, 0.0f);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    /* Face 0: South (+Z) */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[0]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f,  1.0f, 1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, -1.0f, 1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f, -1.0f, 1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f,  1.0f, 1.0f);
+    glEnd();
+
+    /* Face 1: West / +X */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[1]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(1.0f,  1.0f,  1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(1.0f, -1.0f,  1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(1.0f,  1.0f, -1.0f);
+    glEnd();
+
+    /* Face 2: North (-Z) */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[2]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f( 1.0f,  1.0f, -1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f( 1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(-1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(-1.0f,  1.0f, -1.0f);
+    glEnd();
+
+    /* Face 3: East / -X */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[3]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f,  1.0f, -1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(-1.0f, -1.0f,  1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(-1.0f,  1.0f,  1.0f);
+    glEnd();
+
+    /* Face 4: Top (+Y) */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[4]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, 1.0f, -1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, 1.0f,  1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f, 1.0f,  1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, 1.0f, -1.0f);
+    glEnd();
+
+    /* Face 5: Bottom (-Y) */
+    glBindTexture(GL_TEXTURE_2D, r->panorama_tex[5]);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f,  1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f, -1.0f, -1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f,  1.0f);
+    glEnd();
+
+    /* Restore matrices and state */
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+
+    glDepthMask(GL_TRUE);
+
+    /* 2. Soft gradient vignette overlay (matching vanilla title screen) */
     float w = (float)(r->ui_width > 0 ? r->ui_width : r->width);
     float h = (float)(r->ui_height > 0 ? r->ui_height : r->height);
-    /* Crop the square panorama to 16:9 instead of stretching it. */
-    float v0 = 0.21875f, v1 = 0.78125f;
-    tex_quad(r, r->menu_tex, 0, 0, w, h,
-             0, v0, 1, v1, (Color3){1, 1, 1}, false);
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBegin(GL_QUADS);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.18f);
+    glVertex2f(0.0f, 0.0f);
+    glVertex2f(w, 0.0f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.65f);
+    glVertex2f(w, h);
+    glVertex2f(0.0f, h);
+    glEnd();
+
+    glDisable(GL_BLEND);
 }
 
 void renderer_dirt_background(Renderer *r) {
