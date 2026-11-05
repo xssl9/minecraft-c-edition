@@ -1500,6 +1500,22 @@ static bool block_needs_support(uint8_t id) {
     case BLOCK_DANDELION:
     case BLOCK_POPPY:
     case BLOCK_SHORT_GRASS:
+    case BLOCK_CORNFLOWER:
+    case BLOCK_ALLIUM:
+    case BLOCK_AZURE_BLUET:
+    case BLOCK_RED_TULIP:
+    case BLOCK_ORANGE_TULIP:
+    case BLOCK_WHITE_TULIP:
+    case BLOCK_PINK_TULIP:
+    case BLOCK_OXEYE_DAISY:
+    case BLOCK_FERN:
+    case BLOCK_SEAGRASS:
+    case BLOCK_KELP:
+    case BLOCK_TUBE_CORAL:
+    case BLOCK_BRAIN_CORAL:
+    case BLOCK_BUBBLE_CORAL:
+    case BLOCK_FIRE_CORAL:
+    case BLOCK_HORN_CORAL:
     case BLOCK_DEAD_BUSH:
     case BLOCK_SUGAR_CANE:
     case BLOCK_CACTUS:
@@ -1533,7 +1549,34 @@ static bool block_support_valid(World *w, uint8_t id, int x, int y, int z) {
     case BLOCK_DANDELION:
     case BLOCK_POPPY:
     case BLOCK_SHORT_GRASS:
-        return below == BLOCK_GRASS_BLOCK || below == BLOCK_DIRT || below == BLOCK_COARSE_DIRT || below == BLOCK_PODZOL;
+    case BLOCK_CORNFLOWER:
+    case BLOCK_ALLIUM:
+    case BLOCK_AZURE_BLUET:
+    case BLOCK_RED_TULIP:
+    case BLOCK_ORANGE_TULIP:
+    case BLOCK_WHITE_TULIP:
+    case BLOCK_PINK_TULIP:
+    case BLOCK_OXEYE_DAISY:
+    case BLOCK_FERN:
+        return below == BLOCK_GRASS_BLOCK || below == BLOCK_DIRT || below == BLOCK_COARSE_DIRT ||
+               below == BLOCK_PODZOL || below == BLOCK_MOSS_BLOCK || below == BLOCK_PALE_MOSS_BLOCK;
+
+    case BLOCK_SEAGRASS:
+        return below == BLOCK_SAND || below == BLOCK_GRAVEL || below == BLOCK_DIRT ||
+               below == BLOCK_CLAY || below == BLOCK_MUD;
+
+    case BLOCK_KELP:
+        return below == BLOCK_KELP || below == BLOCK_SAND || below == BLOCK_GRAVEL ||
+               below == BLOCK_DIRT || below == BLOCK_CLAY;
+
+    case BLOCK_TUBE_CORAL:
+    case BLOCK_BRAIN_CORAL:
+    case BLOCK_BUBBLE_CORAL:
+    case BLOCK_FIRE_CORAL:
+    case BLOCK_HORN_CORAL:
+        return below == BLOCK_TUBE_CORAL_BLOCK || below == BLOCK_BRAIN_CORAL_BLOCK ||
+               below == BLOCK_BUBBLE_CORAL_BLOCK || below == BLOCK_FIRE_CORAL_BLOCK ||
+               below == BLOCK_HORN_CORAL_BLOCK || below == BLOCK_SAND || below == BLOCK_GRAVEL;
 
     case BLOCK_DEAD_BUSH:
         return below == BLOCK_SAND || below == BLOCK_RED_SAND || below == BLOCK_DIRT || below == BLOCK_COARSE_DIRT;

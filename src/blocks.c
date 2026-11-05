@@ -380,6 +380,47 @@ const BlockDef g_block_defs[BLOCK_COUNT] = {
     /* 26.3 Lush Caves Flora */
     LEAVES(BLOCK_AZALEA_LEAVES, "Azalea Leaves", "block/azalea_leaves", 1.0f, 1.0f, 1.0f),
     LEAVES(BLOCK_FLOWERING_AZALEA_LEAVES, "Flowering Azalea Leaves", "block/flowering_azalea_leaves", 1.0f, 1.0f, 1.0f),
+
+    /* Underwater Flora & Corals */
+    [BLOCK_SEAGRASS] = {.name = "Seagrass", .tex_top = "block/seagrass", .tex_bottom = "block/seagrass", .tex_side = "block/seagrass",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS, .tint_mode = TINT_ALL, .tint_r = 0.40f, .tint_g = 0.82f, .tint_b = 0.35f},
+    [BLOCK_KELP] = {.name = "Kelp", .tex_top = "block/kelp", .tex_bottom = "block/kelp", .tex_side = "block/kelp",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    CUBE(BLOCK_TUBE_CORAL_BLOCK, "Tube Coral Block", "block/tube_coral_block"),
+    CUBE(BLOCK_BRAIN_CORAL_BLOCK, "Brain Coral Block", "block/brain_coral_block"),
+    CUBE(BLOCK_BUBBLE_CORAL_BLOCK, "Bubble Coral Block", "block/bubble_coral_block"),
+    CUBE(BLOCK_FIRE_CORAL_BLOCK, "Fire Coral Block", "block/fire_coral_block"),
+    CUBE(BLOCK_HORN_CORAL_BLOCK, "Horn Coral Block", "block/horn_coral_block"),
+    [BLOCK_TUBE_CORAL] = {.name = "Tube Coral", .tex_top = "block/tube_coral", .tex_bottom = "block/tube_coral", .tex_side = "block/tube_coral",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_BRAIN_CORAL] = {.name = "Brain Coral", .tex_top = "block/brain_coral", .tex_bottom = "block/brain_coral", .tex_side = "block/brain_coral",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_BUBBLE_CORAL] = {.name = "Bubble Coral", .tex_top = "block/bubble_coral", .tex_bottom = "block/bubble_coral", .tex_side = "block/bubble_coral",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_FIRE_CORAL] = {.name = "Fire Coral", .tex_top = "block/fire_coral", .tex_bottom = "block/fire_coral", .tex_side = "block/fire_coral",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_HORN_CORAL] = {.name = "Horn Coral", .tex_top = "block/horn_coral", .tex_bottom = "block/horn_coral", .tex_side = "block/horn_coral",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+
+    /* Wildflowers & Lush Flora */
+    [BLOCK_CORNFLOWER] = {.name = "Cornflower", .tex_top = "block/cornflower", .tex_bottom = "block/cornflower", .tex_side = "block/cornflower",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_ALLIUM] = {.name = "Allium", .tex_top = "block/allium", .tex_bottom = "block/allium", .tex_side = "block/allium",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_AZURE_BLUET] = {.name = "Azure Bluet", .tex_top = "block/azure_bluet", .tex_bottom = "block/azure_bluet", .tex_side = "block/azure_bluet",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_RED_TULIP] = {.name = "Red Tulip", .tex_top = "block/red_tulip", .tex_bottom = "block/red_tulip", .tex_side = "block/red_tulip",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_ORANGE_TULIP] = {.name = "Orange Tulip", .tex_top = "block/orange_tulip", .tex_bottom = "block/orange_tulip", .tex_side = "block/orange_tulip",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_WHITE_TULIP] = {.name = "White Tulip", .tex_top = "block/white_tulip", .tex_bottom = "block/white_tulip", .tex_side = "block/white_tulip",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_PINK_TULIP] = {.name = "Pink Tulip", .tex_top = "block/pink_tulip", .tex_bottom = "block/pink_tulip", .tex_side = "block/pink_tulip",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_OXEYE_DAISY] = {.name = "Oxeye Daisy", .tex_top = "block/oxeye_daisy", .tex_bottom = "block/oxeye_daisy", .tex_side = "block/oxeye_daisy",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+    [BLOCK_FERN] = {.name = "Fern", .tex_top = "block/fern", .tex_bottom = "block/fern", .tex_side = "block/fern",
+        .solid = false, .opaque = false, .shape = SHAPE_CROSS, .tint_mode = TINT_ALL, .tint_r = 0.40f, .tint_g = 0.75f, .tint_b = 0.30f},
 };
 
 uint16_t g_block_tiles[BLOCK_COUNT][FACE_COUNT];
@@ -416,7 +457,13 @@ float block_hardness(uint8_t id) {
         id == BLOCK_DANDELION || id == BLOCK_POPPY || id == BLOCK_SHORT_GRASS ||
         id == BLOCK_SUGAR_CANE || id == BLOCK_DEAD_BUSH || id == BLOCK_CHERRY_SAPLING ||
         id == BLOCK_REDSTONE_WIRE || id == BLOCK_REDSTONE_TORCH ||
-        id == BLOCK_LEVER || id == BLOCK_STONE_BUTTON || id == BLOCK_PALE_HANGING_MOSS) return 0.0f;
+        id == BLOCK_LEVER || id == BLOCK_STONE_BUTTON || id == BLOCK_PALE_HANGING_MOSS ||
+        id == BLOCK_SEAGRASS || id == BLOCK_KELP ||
+        id == BLOCK_TUBE_CORAL || id == BLOCK_BRAIN_CORAL || id == BLOCK_BUBBLE_CORAL ||
+        id == BLOCK_FIRE_CORAL || id == BLOCK_HORN_CORAL ||
+        id == BLOCK_CORNFLOWER || id == BLOCK_ALLIUM || id == BLOCK_AZURE_BLUET ||
+        id == BLOCK_RED_TULIP || id == BLOCK_ORANGE_TULIP || id == BLOCK_WHITE_TULIP ||
+        id == BLOCK_PINK_TULIP || id == BLOCK_OXEYE_DAISY || id == BLOCK_FERN) return 0.0f;
     if (id == BLOCK_BEDROCK) return -1.0f;
     switch (id) {
     case BLOCK_OAK_LEAVES: case BLOCK_BIRCH_LEAVES: case BLOCK_SPRUCE_LEAVES:
@@ -465,6 +512,9 @@ float block_hardness(uint8_t id) {
     case BLOCK_COBBLESTONE_STAIRS: case BLOCK_STONE_BRICK_STAIRS:
     case BLOCK_CALCITE: case BLOCK_AMETHYST_BLOCK: case BLOCK_TUFF: case BLOCK_TUFF_BRICKS:
     case BLOCK_MUD_BRICKS: case BLOCK_PACKED_MUD:
+    case BLOCK_TUBE_CORAL_BLOCK: case BLOCK_BRAIN_CORAL_BLOCK:
+    case BLOCK_BUBBLE_CORAL_BLOCK: case BLOCK_FIRE_CORAL_BLOCK:
+    case BLOCK_HORN_CORAL_BLOCK:
         return 1.5f;
 
     case BLOCK_BLUE_ICE:
@@ -564,6 +614,9 @@ ToolType block_required_tool(uint8_t block_id) {
     case BLOCK_OBSIDIAN: case BLOCK_NETHERRACK: case BLOCK_FURNACE:
     case BLOCK_CALCITE: case BLOCK_TUFF: case BLOCK_TUFF_BRICKS: case BLOCK_AMETHYST_BLOCK:
     case BLOCK_MUD_BRICKS:
+    case BLOCK_TUBE_CORAL_BLOCK: case BLOCK_BRAIN_CORAL_BLOCK:
+    case BLOCK_BUBBLE_CORAL_BLOCK: case BLOCK_FIRE_CORAL_BLOCK:
+    case BLOCK_HORN_CORAL_BLOCK:
     case BLOCK_TERRACOTTA: case BLOCK_RED_TERRACOTTA: case BLOCK_ORANGE_TERRACOTTA:
     case BLOCK_YELLOW_TERRACOTTA: case BLOCK_BROWN_TERRACOTTA: case BLOCK_WHITE_TERRACOTTA:
     case BLOCK_LIGHT_GRAY_TERRACOTTA:

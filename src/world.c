@@ -546,11 +546,17 @@ static inline Biome pick_beach_biome(int ti) {
 
 /* 1:1 OverworldBiomeBuilder dispatch table from Minecraft 26.3 */
 static Biome biome_at(int x, int z, int h, uint64_t seed) {
-    float c = get_continentalness(x, z, seed);
-    float e = get_erosion(x, z, seed);
-    float w = get_weirdness(x, z, seed);
-    float temp = get_temperature(x, z, seed);
-    float hum = get_humidity(x, z, seed);
+    /* Coordinate jitter / domain warping: removes harsh knife-edge borders */
+    float jx = noise2((float)x * 0.035f, (float)z * 0.035f, seed ^ 0x71717171ULL) * 12.0f;
+    float jz = noise2((float)x * 0.035f + 128.0f, (float)z * 0.035f + 128.0f, seed ^ 0x35353535ULL) * 12.0f;
+    int qx = x + (int)jx;
+    int qz = z + (int)jz;
+
+    float c = get_continentalness(qx, qz, seed);
+    float e = get_erosion(qx, qz, seed);
+    float w = get_weirdness(qx, qz, seed);
+    float temp = get_temperature(qx, qz, seed);
+    float hum = get_humidity(qx, qz, seed);
     float pv = peaks_and_valleys(w);
 
     int ti = get_temperature_index(temp);
@@ -599,21 +605,26 @@ static Biome biome_at(int x, int z, int h, uint64_t seed) {
 
 /* 26.3 Underground Biome selector for 3D caverns */
 static inline Biome underground_biome_at(int x, int y, int z, uint64_t seed) {
-    float c = get_continentalness(x, z, seed);
-    float e = get_erosion(x, z, seed);
-    float w = get_weirdness(x, z, seed);
-    float hum = get_humidity(x, z, seed);
+    float jx = noise2((float)x * 0.035f, (float)z * 0.035f, seed ^ 0x71717171ULL) * 12.0f;
+    float jz = noise2((float)x * 0.035f + 128.0f, (float)z * 0.035f + 128.0f, seed ^ 0x35353535ULL) * 12.0f;
+    int qx = x + (int)jx;
+    int qz = z + (int)jz;
+
+    float c = get_continentalness(qx, qz, seed);
+    float e = get_erosion(qx, qz, seed);
+    float w = get_weirdness(qx, qz, seed);
+    float hum = get_humidity(qx, qz, seed);
 
     /* 26.3 Sulfur Caves: c in [-0.19, 0.55], e in [0.45, 1.0], w in [-1.1, -0.65] */
     if (c >= -0.19f && c <= 0.55f && e >= 0.45f && w <= -0.65f)
         return BIOME_SULFUR_CAVES;
 
-    /* Lush Caves: humidity >= 0.45 */
-    if (hum >= 0.45f)
+    /* Lush Caves: humidity >= 0.40 */
+    if (hum >= 0.40f)
         return BIOME_LUSH_CAVES;
 
-    /* Dripstone Caves: continentalness >= 0.40 & low erosion */
-    if (c >= 0.40f && e < -0.20f)
+    /* Dripstone Caves: continentalness >= 0.15 & erosion < 0.15 & hum < 0.35 */
+    if (c >= 0.15f && e < 0.15f && hum < 0.35f)
         return BIOME_DRIPSTONE_CAVES;
 
     /* Deep Dark: bottom bedrock layer (Y <= 28) and mountain roots (erosion < -0.30) */
@@ -855,6 +866,32 @@ static void place_ice_spike(Chunk *c, int lx, int lz, int h, uint64_t seed) {
     }
 }
 
+static inline uint8_t pick_meadow_flower(uint32_t flor) {
+    switch (flor % 9U) {
+    case 0: return BLOCK_ALLIUM;
+    case 1: return BLOCK_CORNFLOWER;
+    case 2: return BLOCK_OXEYE_DAISY;
+    case 3: return BLOCK_RED_TULIP;
+    case 4: return BLOCK_ORANGE_TULIP;
+    case 5: return BLOCK_WHITE_TULIP;
+    case 6: return BLOCK_PINK_TULIP;
+    case 7: return BLOCK_DANDELION;
+    default: return BLOCK_POPPY;
+    }
+}
+
+static inline uint8_t pick_plains_flower(uint32_t flor) {
+    switch (flor % 7U) {
+    case 0: return BLOCK_DANDELION;
+    case 1: return BLOCK_POPPY;
+    case 2: return BLOCK_AZURE_BLUET;
+    case 3: return BLOCK_CORNFLOWER;
+    case 4: return BLOCK_OXEYE_DAISY;
+    case 5: return BLOCK_RED_TULIP;
+    default: return BLOCK_WHITE_TULIP;
+    }
+}
+
 void world_generate_chunk_for_edit(World *w, Chunk *c) {
     if (c->generated)
         return;
@@ -871,7 +908,42 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
             uint8_t filler = BLOCK_DIRT;
             bool is_badlands = (biome == BIOME_BADLANDS || biome == BIOME_ERODED_BADLANDS || biome == BIOME_WOODED_BADLANDS);
 
-            if (biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN || biome == BIOME_BEACH || biome == BIOME_DESERT) {
+            if (h <= SEA_LEVEL) {
+                /* Underwater bed: NEVER grass block! Authentic sand, gravel, clay, and mud */
+                uint32_t wr = mced_hash_u32((uint32_t)wx * 0x85ebca6bU ^ (uint32_t)wz * 0xc2b2ae35U ^ (uint32_t)w->seed);
+                if (biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN) {
+                    float temp = get_temperature(wx, wz, w->seed);
+                    if (temp > 0.15f) {
+                        top = BLOCK_SAND;
+                        filler = BLOCK_SAND;
+                    } else if (temp < -0.15f) {
+                        top = ((wr % 3U) == 0) ? BLOCK_GRAVEL : (((wr % 7U) == 0) ? BLOCK_CLAY : BLOCK_SAND);
+                        filler = (top == BLOCK_GRAVEL) ? BLOCK_GRAVEL : BLOCK_SAND;
+                    } else {
+                        top = ((wr % 7U) == 0) ? BLOCK_GRAVEL : (((wr % 15U) == 0) ? BLOCK_CLAY : BLOCK_SAND);
+                        filler = (top == BLOCK_GRAVEL) ? BLOCK_GRAVEL : BLOCK_SAND;
+                    }
+                } else if (biome == BIOME_SWAMP || biome == BIOME_MANGROVE_SWAMP) {
+                    top = ((wr % 3U) == 0) ? BLOCK_CLAY : BLOCK_MUD;
+                    filler = BLOCK_PACKED_MUD;
+                } else {
+                    /* Rivers, lakes, flooded shores in inland biomes */
+                    uint32_t rbed = wr % 10U;
+                    if (rbed < 6) {
+                        top = BLOCK_SAND;
+                        filler = BLOCK_SAND;
+                    } else if (rbed < 8) {
+                        top = BLOCK_GRAVEL;
+                        filler = BLOCK_GRAVEL;
+                    } else if (rbed < 9) {
+                        top = BLOCK_CLAY;
+                        filler = BLOCK_DIRT;
+                    } else {
+                        top = BLOCK_DIRT;
+                        filler = BLOCK_DIRT;
+                    }
+                }
+            } else if (biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN || biome == BIOME_BEACH || biome == BIOME_DESERT) {
                 top = BLOCK_SAND;
                 filler = (biome == BIOME_DESERT) ? BLOCK_SANDSTONE : BLOCK_SAND;
             } else if (biome == BIOME_SNOWY_PLAINS || biome == BIOME_SNOWY_TAIGA || biome == BIOME_SNOWY_SLOPES || biome == BIOME_SNOWY_BEACH) {
@@ -938,14 +1010,6 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
                     }
                 }
                 c->blocks[chunk_index_local(lx, y, lz)] = b;
-            }
-
-            if ((biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN) && h < SEA_LEVEL - 4) {
-                uint32_t gravel = mced_hash_u32((uint32_t)wx * 13U ^ (uint32_t)wz * 31U ^ (uint32_t)w->seed);
-                if ((gravel & 15) == 0)
-                    c->blocks[chunk_index_local(lx, h, lz)] = BLOCK_GRAVEL;
-                else if ((gravel & 31) == 0)
-                    c->blocks[chunk_index_local(lx, h, lz)] = BLOCK_CLAY;
             }
 
             for (int y = h + 1; y <= SEA_LEVEL; y++)
@@ -1094,22 +1158,49 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
                         }
                     }
                 } else if (ubiome == BIOME_DRIPSTONE_CAVES) {
-                    /* Dripstone caves: dripstone block columns and pointed dripstone */
-                    if (cur == BLOCK_STONE || cur == BLOCK_DEEPSLATE) {
-                        c->blocks[idx] = BLOCK_DRIPSTONE_BLOCK;
-                    } else if (cur == BLOCK_AIR && y > 10) {
+                    /* Authentic Minecraft Dripstone Caves: stone/deepslate walls with ceiling/floor dripstone patches & stalactites/stalagmites */
+                    if (cur == BLOCK_AIR && y > 10 && y < h - 4) {
                         uint8_t below = c->blocks[chunk_index_local(lx, y - 1, lz)];
                         uint8_t above = c->blocks[chunk_index_local(lx, y + 1, lz)];
-                        if (below == BLOCK_DRIPSTONE_BLOCK || below == BLOCK_STONE) {
-                            uint32_t dr = mced_hash_u32((uint32_t)wx * 7U ^ (uint32_t)wz * 13U ^ (uint32_t)y);
-                            if ((dr % 4U) == 0) {
-                                c->blocks[idx] = BLOCK_POINTED_DRIPSTONE;
+
+                        /* 1. Ceiling dripstone patch & hanging stalactite */
+                        if (above == BLOCK_STONE || above == BLOCK_DEEPSLATE || above == BLOCK_DRIPSTONE_BLOCK) {
+                            uint32_t cr = mced_hash_u32((uint32_t)wx * 31U ^ (uint32_t)wz * 37U ^ (uint32_t)(y / 3));
+                            if ((cr % 100U) < 55) {
+                                c->blocks[chunk_index_local(lx, y + 1, lz)] = BLOCK_DRIPSTONE_BLOCK;
+                                if (y + 2 < h && (c->blocks[chunk_index_local(lx, y + 2, lz)] == BLOCK_STONE ||
+                                                  c->blocks[chunk_index_local(lx, y + 2, lz)] == BLOCK_DEEPSLATE)) {
+                                    c->blocks[chunk_index_local(lx, y + 2, lz)] = BLOCK_DRIPSTONE_BLOCK;
+                                }
+                                int st_len = 1 + (int)(cr % 4U);
+                                for (int dy = 0; dy < st_len; dy++) {
+                                    int sy = y - dy;
+                                    if (sy > 10 && c->blocks[chunk_index_local(lx, sy, lz)] == BLOCK_AIR) {
+                                        c->blocks[chunk_index_local(lx, sy, lz)] = BLOCK_POINTED_DRIPSTONE;
+                                    } else {
+                                        break;
+                                    }
+                                }
                             }
                         }
-                        if (above == BLOCK_DRIPSTONE_BLOCK || above == BLOCK_STONE) {
-                            uint32_t dr = mced_hash_u32((uint32_t)wx * 31U ^ (uint32_t)wz * 37U ^ (uint32_t)y);
-                            if ((dr % 4U) == 0) {
-                                c->blocks[idx] = BLOCK_POINTED_DRIPSTONE;
+
+                        /* 2. Floor dripstone mound & rising stalagmite */
+                        if (below == BLOCK_STONE || below == BLOCK_DEEPSLATE || below == BLOCK_DRIPSTONE_BLOCK) {
+                            uint32_t fr = mced_hash_u32((uint32_t)wx * 19U ^ (uint32_t)wz * 43U ^ (uint32_t)(y / 3));
+                            if ((fr % 100U) < 50) {
+                                c->blocks[chunk_index_local(lx, y - 1, lz)] = BLOCK_DRIPSTONE_BLOCK;
+                                int sm_len = 1 + (int)(fr % 3U);
+                                for (int dy = 0; dy < sm_len; dy++) {
+                                    int sy = y + dy;
+                                    if (sy < h - 4 && c->blocks[chunk_index_local(lx, sy, lz)] == BLOCK_AIR) {
+                                        c->blocks[chunk_index_local(lx, sy, lz)] = BLOCK_POINTED_DRIPSTONE;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            } else if ((fr % 100U) == 99 && y > 12) {
+                                c->blocks[chunk_index_local(lx, y - 1, lz)] = BLOCK_DRIPSTONE_BLOCK;
+                                c->blocks[chunk_index_local(lx, y, lz)] = BLOCK_WATER;
                             }
                         }
                     }
@@ -1215,9 +1306,68 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
         }
     }
 
+    /* Underwater Flora, Corals & Kelp Pass */
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
+            int wx = c->cx * CHUNK_SIZE + lx;
+            int wz = c->cz * CHUNK_SIZE + lz;
+            int h = c->heightmap[lx + lz * CHUNK_SIZE];
+            if (h >= SEA_LEVEL)
+                continue;
+            int depth = SEA_LEVEL - h;
+            Biome biome = biome_at(wx, wz, h, w->seed);
+            float temp = get_temperature(wx, wz, w->seed);
+            uint32_t wr = mced_hash_u32((uint32_t)wx * 0x31415926U ^ (uint32_t)wz * 0x27182818U ^ (uint32_t)w->seed);
+
+            /* 1. Warm Ocean Coral Reefs */
+            if ((biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN) && temp > 0.15f) {
+                float reef = fbm2(wx * 0.05f, wz * 0.05f, w->seed ^ 0x90210ULL, 2);
+                if (reef > 0.18f && depth >= 3) {
+                    int cheight = 1 + (int)((reef - 0.18f) * 8.0f);
+                    if (cheight > depth - 2) cheight = depth - 2;
+                    uint32_t ctype = (mced_hash_u32((uint32_t)(wx / 4) * 37U ^ (uint32_t)(wz / 4) * 59U)) % 5U;
+                    uint8_t cblock = (uint8_t)(BLOCK_TUBE_CORAL_BLOCK + ctype);
+                    uint8_t cplant = (uint8_t)(BLOCK_TUBE_CORAL + ctype);
+                    for (int dy = 1; dy <= cheight; dy++) {
+                        c->blocks[chunk_index_local(lx, h + dy, lz)] = cblock;
+                    }
+                    if (h + cheight + 1 < SEA_LEVEL) {
+                        c->blocks[chunk_index_local(lx, h + cheight + 1, lz)] = cplant;
+                    }
+                } else if ((wr % 100U) < 45) {
+                    uint32_t flor = (wr / 100U) % 100U;
+                    uint32_t ctype = (wr >> 4) % 5U;
+                    uint8_t cplant = (uint8_t)(BLOCK_TUBE_CORAL + ctype);
+                    if (flor < 50 && h + 1 < SEA_LEVEL) {
+                        c->blocks[chunk_index_local(lx, h + 1, lz)] = cplant;
+                    } else if (h + 1 < SEA_LEVEL) {
+                        c->blocks[chunk_index_local(lx, h + 1, lz)] = BLOCK_SEAGRASS;
+                    }
+                }
+            } else if ((biome == BIOME_OCEAN || biome == BIOME_DEEP_OCEAN) && temp <= 0.15f && depth >= 5) {
+                /* 2. Temperate & Cold Ocean Kelp Forests */
+                float kelp_patch = noise2(wx * 0.045f, wz * 0.045f, w->seed ^ 0x55AA1122ULL);
+                if (kelp_patch > 0.10f && (wr % 100U) < 65) {
+                    int kelp_len = 3 + (int)(wr % 9U);
+                    if (h + kelp_len >= SEA_LEVEL) kelp_len = SEA_LEVEL - 1 - h;
+                    for (int dy = 1; dy <= kelp_len; dy++) {
+                        c->blocks[chunk_index_local(lx, h + dy, lz)] = BLOCK_KELP;
+                    }
+                } else if ((wr % 100U) < 40 && h + 1 < SEA_LEVEL) {
+                    c->blocks[chunk_index_local(lx, h + 1, lz)] = BLOCK_SEAGRASS;
+                }
+            } else {
+                /* 3. General Inland Water Seagrass */
+                if ((wr % 100U) < 38 && h + 1 < SEA_LEVEL) {
+                    c->blocks[chunk_index_local(lx, h + 1, lz)] = BLOCK_SEAGRASS;
+                }
+            }
+        }
+    }
+
     /* 26.3 Vegetation & Biome Decoration */
-    for (int lx = 2; lx < CHUNK_SIZE - 2; lx++) {
-        for (int lz = 2; lz < CHUNK_SIZE - 2; lz++) {
+    for (int lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int wx = c->cx * CHUNK_SIZE + lx;
             int wz = c->cz * CHUNK_SIZE + lz;
             int h = c->heightmap[lx + lz * CHUNK_SIZE];
@@ -1228,71 +1378,89 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
             uint32_t r = mced_hash_u32((uint32_t)wx * 0x27d4eb2dU ^
                                        (uint32_t)wz * 0x165667b1U ^
                                        (uint32_t)w->seed ^ 0xA57E1234U);
+            bool can_tree = (lx >= 2 && lx < CHUNK_SIZE - 2 && lz >= 2 && lz < CHUNK_SIZE - 2);
 
             if (biome == BIOME_ICE_SPIKES && top == BLOCK_SNOW_BLOCK) {
-                if ((r % 75U) == 0) {
+                if (can_tree && (r % 75U) == 0) {
                     place_ice_spike(c, lx, lz, h, w->seed);
                 }
             } else if (biome == BIOME_CHERRY_GROVE && top == BLOCK_GRASS_BLOCK) {
-                if ((r % 45U) == 0) {
+                if (can_tree && (r % 45U) == 0) {
                     place_cherry_tree(w, c, lx, lz, h, w->seed);
-                } else if ((r % 100U) < 35) {
+                } else if ((r % 100U) < 75) {
                     uint32_t flor = (r / 100U) % 100U;
-                    if (flor < 45) set_local(c, lx, h + 1, lz, BLOCK_DANDELION);
-                    else if (flor < 85) set_local(c, lx, h + 1, lz, BLOCK_POPPY);
+                    if (flor < 40) set_local(c, lx, h + 1, lz, BLOCK_PINK_TULIP);
+                    else if (flor < 60) set_local(c, lx, h + 1, lz, BLOCK_DANDELION);
+                    else if (flor < 75) set_local(c, lx, h + 1, lz, BLOCK_POPPY);
                     else set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
                 }
             } else if (biome == BIOME_PALE_GARDEN && top == BLOCK_PALE_MOSS_BLOCK) {
-                if ((r % 45U) == 0) {
+                if (can_tree && (r % 45U) == 0) {
                     place_pale_tree(w, c, lx, lz, h, w->seed);
-                } else if ((r % 100U) < 15) {
+                } else if ((r % 100U) < 25) {
                     set_local(c, lx, h + 1, lz, BLOCK_PALE_HANGING_MOSS);
                 }
             } else if (biome == BIOME_OLD_GROWTH_BIRCH_FOREST && top == BLOCK_GRASS_BLOCK) {
-                if ((r % 30U) == 0) {
+                if (can_tree && (r % 30U) == 0) {
                     place_tall_birch(c, lx, lz, h, w->seed);
-                } else if ((r % 100U) < 25) {
-                    set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                } else if ((r % 100U) < 65) {
+                    uint32_t flor = (r / 100U) % 100U;
+                    if (flor < 65) set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                    else if (flor < 85) set_local(c, lx, h + 1, lz, BLOCK_FERN);
+                    else set_local(c, lx, h + 1, lz, BLOCK_WHITE_TULIP);
                 }
             } else if ((biome == BIOME_OLD_GROWTH_PINE_TAIGA || biome == BIOME_OLD_GROWTH_SPRUCE_TAIGA) &&
                        (top == BLOCK_PODZOL || top == BLOCK_COARSE_DIRT || top == BLOCK_GRASS_BLOCK)) {
-                if ((r % 28U) == 0) {
+                if (can_tree && (r % 28U) == 0) {
                     place_mega_spruce(c, lx, lz, h, w->seed);
-                }
-            } else if ((biome == BIOME_FLOWER_FOREST || biome == BIOME_SUNFLOWER_PLAINS) && top == BLOCK_GRASS_BLOCK) {
-                if ((r % 70U) == 0) {
-                    place_tree(w, c, lx, lz, h, w->seed);
                 } else if ((r % 100U) < 60) {
                     uint32_t flor = (r / 100U) % 100U;
-                    if (flor < 45) set_local(c, lx, h + 1, lz, BLOCK_POPPY);
-                    else if (flor < 85) set_local(c, lx, h + 1, lz, BLOCK_DANDELION);
+                    if (flor < 55) set_local(c, lx, h + 1, lz, BLOCK_FERN);
+                    else set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                }
+            } else if ((biome == BIOME_FLOWER_FOREST || biome == BIOME_SUNFLOWER_PLAINS) && top == BLOCK_GRASS_BLOCK) {
+                if (can_tree && (r % 70U) == 0) {
+                    place_tree(w, c, lx, lz, h, w->seed);
+                } else if ((r % 100U) < 85) {
+                    uint32_t flor = (r / 100U) % 100U;
+                    if (flor < 75) set_local(c, lx, h + 1, lz, pick_meadow_flower(flor));
                     else set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
                 }
             } else if (biome == BIOME_MEADOW && top == BLOCK_GRASS_BLOCK) {
-                if ((r % 300U) == 0) {
+                if (can_tree && (r % 300U) == 0) {
                     place_tree(w, c, lx, lz, h, w->seed);
-                } else if ((r % 100U) < 45) {
+                } else if ((r % 100U) < 80) {
                     uint32_t flor = (r / 100U) % 100U;
-                    if (flor < 45) set_local(c, lx, h + 1, lz, BLOCK_DANDELION);
-                    else if (flor < 90) set_local(c, lx, h + 1, lz, BLOCK_POPPY);
+                    if (flor < 65) set_local(c, lx, h + 1, lz, pick_meadow_flower(flor));
                     else set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
                 }
             } else if (top == BLOCK_GRASS_BLOCK) {
                 int chance = (biome == BIOME_FOREST || biome == BIOME_BIRCH_FOREST ||
                               biome == BIOME_DARK_FOREST || biome == BIOME_TAIGA ||
                               biome == BIOME_DAPPLED_FOREST) ? 32 : (biome == BIOME_PLAINS ? 180 : 0);
-                if (chance && (int)(r % (uint32_t)chance) == 0) {
+                if (can_tree && chance && (int)(r % (uint32_t)chance) == 0) {
                     place_tree(w, c, lx, lz, h, w->seed);
                 } else if ((r & 0x3ff) == 0) {
                     set_local(c, lx, h + 1, lz, BLOCK_PUMPKIN);
-                } else if ((r % 100U) < 22) {
-                    uint32_t flor = (r / 100U) % 100U;
-                    if (flor < 75)
-                        set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
-                    else if (flor < 88)
-                        set_local(c, lx, h + 1, lz, BLOCK_DANDELION);
-                    else
-                        set_local(c, lx, h + 1, lz, BLOCK_POPPY);
+                } else {
+                    int cov = (biome == BIOME_PLAINS) ? 75 : 65;
+                    if ((int)(r % 100U) < cov) {
+                        uint32_t flor = (r / 100U) % 100U;
+                        if (biome == BIOME_TAIGA) {
+                            if (flor < 50) set_local(c, lx, h + 1, lz, BLOCK_FERN);
+                            else set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                        } else if (biome == BIOME_FOREST || biome == BIOME_BIRCH_FOREST || biome == BIOME_DARK_FOREST) {
+                            if (flor < 70) set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                            else if (flor < 85) set_local(c, lx, h + 1, lz, BLOCK_FERN);
+                            else set_local(c, lx, h + 1, lz, pick_plains_flower(flor));
+                        } else {
+                            /* Plains */
+                            if (flor < 72)
+                                set_local(c, lx, h + 1, lz, BLOCK_SHORT_GRASS);
+                            else
+                                set_local(c, lx, h + 1, lz, pick_plains_flower(flor));
+                        }
+                    }
                 }
             } else if (top == BLOCK_SAND && biome == BIOME_DESERT) {
                 if ((r % 140U) == 0) {

@@ -1120,8 +1120,17 @@ static inline bool is_leaves(uint8_t id) {
            id == BLOCK_AZALEA_LEAVES || id == BLOCK_FLOWERING_AZALEA_LEAVES;
 }
 
+static inline bool is_submerged_flora(uint8_t id) {
+    return id == BLOCK_SEAGRASS || id == BLOCK_KELP ||
+           id == BLOCK_TUBE_CORAL || id == BLOCK_BRAIN_CORAL ||
+           id == BLOCK_BUBBLE_CORAL || id == BLOCK_FIRE_CORAL ||
+           id == BLOCK_HORN_CORAL;
+}
+
 static bool face_visible(uint8_t id, uint8_t nb) {
     if (block_is_opaque(nb))
+        return false;
+    if (id == BLOCK_WATER && is_submerged_flora(nb))
         return false;
     if (nb == id) {
         if (g_block_defs[id].shape == SHAPE_SLAB)

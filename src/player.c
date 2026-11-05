@@ -212,9 +212,10 @@ void player_update(Player *p, World *w, const PlayerInput *in, float dt) {
     bool was_ground = p->on_ground;
     p->on_ground = false;
     uint8_t body_block = block_at(w, p->pos.x, p->pos.y + 0.4f, p->pos.z);
-    p->in_water = body_block == BLOCK_WATER;
+    uint8_t head_block = block_at(w, p->pos.x, p->pos.y + PLAYER_EYE, p->pos.z);
+    p->in_water = (body_block == BLOCK_WATER || block_is_submerged_flora(body_block));
     p->in_lava = body_block == BLOCK_LAVA;
-    bool head_water = block_at(w, p->pos.x, p->pos.y + PLAYER_EYE, p->pos.z) == BLOCK_WATER;
+    bool head_water = (head_block == BLOCK_WATER || block_is_submerged_flora(head_block));
 
     float yaw = p->yaw * MCED_DEG2RAD;
     Vec3 fwd = vec3(-sinf(yaw), 0, -cosf(yaw));

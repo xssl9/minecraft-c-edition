@@ -265,6 +265,31 @@ typedef enum {
     BLOCK_AZALEA_LEAVES,
     BLOCK_FLOWERING_AZALEA_LEAVES,
 
+    /* Underwater Flora & Corals */
+    BLOCK_SEAGRASS,
+    BLOCK_KELP,
+    BLOCK_TUBE_CORAL_BLOCK,
+    BLOCK_BRAIN_CORAL_BLOCK,
+    BLOCK_BUBBLE_CORAL_BLOCK,
+    BLOCK_FIRE_CORAL_BLOCK,
+    BLOCK_HORN_CORAL_BLOCK,
+    BLOCK_TUBE_CORAL,
+    BLOCK_BRAIN_CORAL,
+    BLOCK_BUBBLE_CORAL,
+    BLOCK_FIRE_CORAL,
+    BLOCK_HORN_CORAL,
+
+    /* Wildflowers & Lush Flora */
+    BLOCK_CORNFLOWER,
+    BLOCK_ALLIUM,
+    BLOCK_AZURE_BLUET,
+    BLOCK_RED_TULIP,
+    BLOCK_ORANGE_TULIP,
+    BLOCK_WHITE_TULIP,
+    BLOCK_PINK_TULIP,
+    BLOCK_OXEYE_DAISY,
+    BLOCK_FERN,
+
     BLOCK_COUNT
 } BlockId;
 
@@ -356,6 +381,13 @@ static inline bool block_is_opaque(uint8_t id) {
 
 static inline bool block_is_liquid(uint8_t id) {
     return id < BLOCK_COUNT && g_block_defs[id].liquid;
+}
+
+static inline bool block_is_submerged_flora(uint8_t id) {
+    return id == BLOCK_SEAGRASS || id == BLOCK_KELP ||
+           id == BLOCK_TUBE_CORAL || id == BLOCK_BRAIN_CORAL ||
+           id == BLOCK_BUBBLE_CORAL || id == BLOCK_FIRE_CORAL ||
+           id == BLOCK_HORN_CORAL;
 }
 
 #endif
