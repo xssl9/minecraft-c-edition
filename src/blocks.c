@@ -248,6 +248,9 @@ const BlockDef g_block_defs[BLOCK_COUNT] = {
     [ITEM_RAW_GOLD] = {.name = "Raw Gold", .tex_top = "item/raw_gold", .tex_bottom = "item/raw_gold", .tex_side = "item/raw_gold", .is_item = true},
     [ITEM_GOLD_INGOT] = {.name = "Gold Ingot", .tex_top = "item/gold_ingot", .tex_bottom = "item/gold_ingot", .tex_side = "item/gold_ingot", .is_item = true},
     [ITEM_DIAMOND] = {.name = "Diamond", .tex_top = "item/diamond", .tex_bottom = "item/diamond", .tex_side = "item/diamond", .is_item = true},
+    [ITEM_EMERALD] = {.name = "Emerald", .tex_top = "item/emerald", .tex_bottom = "item/emerald", .tex_side = "item/emerald", .is_item = true},
+    [ITEM_RAW_COPPER] = {.name = "Raw Copper", .tex_top = "item/raw_copper", .tex_bottom = "item/raw_copper", .tex_side = "item/raw_copper", .is_item = true},
+    [ITEM_LAPIS_LAZULI] = {.name = "Lapis Lazuli", .tex_top = "item/lapis_lazuli", .tex_bottom = "item/lapis_lazuli", .tex_side = "item/lapis_lazuli", .is_item = true},
     [ITEM_REDSTONE] = {.name = "Redstone Dust", .tex_top = "item/redstone", .tex_bottom = "item/redstone", .tex_side = "item/redstone", .is_item = true},
     [ITEM_BONE] = {.name = "Bone", .tex_top = "item/bone", .tex_bottom = "item/bone", .tex_side = "item/bone", .is_item = true},
     [ITEM_ARROW] = {.name = "Arrow", .tex_top = "item/arrow", .tex_bottom = "item/arrow", .tex_side = "item/arrow", .is_item = true},
@@ -258,7 +261,6 @@ const BlockDef g_block_defs[BLOCK_COUNT] = {
     [ITEM_LAVA_BUCKET] = {.name = "Lava Bucket", .tex_top = "item/lava_bucket", .tex_bottom = "item/lava_bucket", .tex_side = "item/lava_bucket", .is_item = true},
     [ITEM_MILK_BUCKET] = {.name = "Milk Bucket", .tex_top = "item/milk_bucket", .tex_bottom = "item/milk_bucket", .tex_side = "item/milk_bucket", .is_item = true},
     [ITEM_WHEAT_SEEDS] = {.name = "Wheat Seeds", .tex_top = "item/wheat_seeds", .tex_bottom = "item/wheat_seeds", .tex_side = "item/wheat_seeds", .is_item = true},
-    [ITEM_SUGAR_CANE] = {.name = "Sugar Cane", .tex_top = "item/sugar_cane", .tex_bottom = "item/sugar_cane", .tex_side = "item/sugar_cane", .is_item = true},
     [ITEM_SUGAR] = {.name = "Sugar", .tex_top = "item/sugar", .tex_bottom = "item/sugar", .tex_side = "item/sugar", .is_item = true},
     [ITEM_PAPER] = {.name = "Paper", .tex_top = "item/paper", .tex_bottom = "item/paper", .tex_side = "item/paper", .is_item = true},
 
@@ -299,6 +301,85 @@ const BlockDef g_block_defs[BLOCK_COUNT] = {
     [ITEM_STONE_SWORD] = {.name = "Stone Sword", .tex_top = "item/stone_sword", .tex_bottom = "item/stone_sword", .tex_side = "item/stone_sword", .is_item = true},
     [ITEM_IRON_SWORD] = {.name = "Iron Sword", .tex_top = "item/iron_sword", .tex_bottom = "item/iron_sword", .tex_side = "item/iron_sword", .is_item = true},
     [ITEM_DIAMOND_SWORD] = {.name = "Diamond Sword", .tex_top = "item/diamond_sword", .tex_bottom = "item/diamond_sword", .tex_side = "item/diamond_sword", .is_item = true},
+
+    /* Deepslate Ores */
+    CUBE(BLOCK_DEEPSLATE_COAL_ORE, "Deepslate Coal Ore", "block/deepslate_coal_ore"),
+    CUBE(BLOCK_DEEPSLATE_IRON_ORE, "Deepslate Iron Ore", "block/deepslate_iron_ore"),
+    CUBE(BLOCK_DEEPSLATE_COPPER_ORE, "Deepslate Copper Ore", "block/deepslate_copper_ore"),
+    CUBE(BLOCK_DEEPSLATE_GOLD_ORE, "Deepslate Gold Ore", "block/deepslate_gold_ore"),
+    CUBE(BLOCK_DEEPSLATE_REDSTONE_ORE, "Deepslate Redstone Ore", "block/deepslate_redstone_ore"),
+    CUBE(BLOCK_DEEPSLATE_EMERALD_ORE, "Deepslate Emerald Ore", "block/deepslate_emerald_ore"),
+    CUBE(BLOCK_DEEPSLATE_LAPIS_ORE, "Deepslate Lapis Ore", "block/deepslate_lapis_ore"),
+    CUBE(BLOCK_DEEPSLATE_DIAMOND_ORE, "Deepslate Diamond Ore", "block/deepslate_diamond_ore"),
+
+    /* Deepslate Building Blocks */
+    CUBE(BLOCK_DEEPSLATE_BRICKS, "Deepslate Bricks", "block/deepslate_bricks"),
+    CUBE(BLOCK_DEEPSLATE_TILES, "Deepslate Tiles", "block/deepslate_tiles"),
+    CUBE(BLOCK_POLISHED_DEEPSLATE, "Polished Deepslate", "block/polished_deepslate"),
+    CUBE(BLOCK_CHISELED_DEEPSLATE, "Chiseled Deepslate", "block/chiseled_deepslate"),
+
+    /* Cherry Wood Set */
+    CUBE_TB(BLOCK_CHERRY_LOG, "Cherry Log", "block/cherry_log_top", "block/cherry_log_top", "block/cherry_log"),
+    CUBE(BLOCK_CHERRY_PLANKS, "Cherry Planks", "block/cherry_planks"),
+    LEAVES(BLOCK_CHERRY_LEAVES, "Cherry Leaves", "block/cherry_leaves", 1.0f, 1.0f, 1.0f),
+    [BLOCK_CHERRY_SAPLING] = {
+        .name = "Cherry Sapling", .tex_top = "block/cherry_sapling", .tex_bottom = "block/cherry_sapling",
+        .tex_side = "block/cherry_sapling", .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+
+    /* Mud & Tuff Set */
+    CUBE(BLOCK_MUD, "Mud", "block/mud"),
+    CUBE(BLOCK_MUD_BRICKS, "Mud Bricks", "block/mud_bricks"),
+    CUBE(BLOCK_PACKED_MUD, "Packed Mud", "block/packed_mud"),
+    CUBE(BLOCK_TUFF_BRICKS, "Tuff Bricks", "block/tuff_bricks"),
+
+    /* Badlands Terracotta & Geological Blocks */
+    CUBE(BLOCK_TERRACOTTA, "Terracotta", "block/terracotta"),
+    CUBE(BLOCK_RED_TERRACOTTA, "Red Terracotta", "block/red_terracotta"),
+    CUBE(BLOCK_ORANGE_TERRACOTTA, "Orange Terracotta", "block/orange_terracotta"),
+    CUBE(BLOCK_YELLOW_TERRACOTTA, "Yellow Terracotta", "block/yellow_terracotta"),
+    CUBE(BLOCK_BROWN_TERRACOTTA, "Brown Terracotta", "block/brown_terracotta"),
+    CUBE(BLOCK_WHITE_TERRACOTTA, "White Terracotta", "block/white_terracotta"),
+    CUBE(BLOCK_LIGHT_GRAY_TERRACOTTA, "Light Gray Terracotta", "block/light_gray_terracotta"),
+    CUBE(BLOCK_BLUE_ICE, "Blue Ice", "block/blue_ice"),
+
+    /* 26.3 Mechanics & Iconic Items */
+    [BLOCK_CRAFTER] = {.name = "Crafter", .tex_top = "block/crafter_top", .tex_bottom = "block/crafter_bottom", .tex_side = "block/crafter_east", .tex_front = "block/crafter_north", .solid = true, .opaque = true},
+    CUBE(BLOCK_HEAVY_CORE, "Heavy Core", "block/heavy_core"),
+    [ITEM_MACE] = {.name = "Mace", .tex_top = "item/mace", .tex_bottom = "item/mace", .tex_side = "item/mace", .is_item = true},
+
+    /* Pale Garden Set */
+    CUBE_TB(BLOCK_PALE_OAK_LOG, "Pale Oak Log", "block/pale_oak_log_top", "block/pale_oak_log_top", "block/pale_oak_log"),
+    CUBE(BLOCK_PALE_OAK_PLANKS, "Pale Oak Planks", "block/pale_oak_planks"),
+    LEAVES(BLOCK_PALE_OAK_LEAVES, "Pale Oak Leaves", "block/pale_oak_leaves", 1.0f, 1.0f, 1.0f),
+    CUBE(BLOCK_PALE_MOSS_BLOCK, "Pale Moss Block", "block/pale_moss_block"),
+    CUBE_TB(BLOCK_CREAKING_HEART, "Creaking Heart", "block/creaking_heart_top", "block/creaking_heart_top", "block/creaking_heart"),
+    [BLOCK_PALE_HANGING_MOSS] = {.name = "Pale Hanging Moss", .tex_top = "block/pale_hanging_moss",
+        .tex_bottom = "block/pale_hanging_moss",
+        .tex_side = "block/pale_hanging_moss", .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+
+    /* 26.3 Sulfur Caves Set */
+    CUBE(BLOCK_SULFUR, "Sulfur", "block/sulfur"),
+    CUBE(BLOCK_CINNABAR, "Cinnabar", "block/cinnabar"),
+    CUBE(BLOCK_POTENT_SULFUR, "Potent Sulfur", "block/potent_sulfur"),
+    [BLOCK_SULFUR_SPIKE] = {.name = "Sulfur Spike", .tex_top = "block/sulfur_spike_up_tip",
+        .tex_bottom = "block/sulfur_spike_up_tip",
+        .tex_side = "block/sulfur_spike_up_tip", .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+
+    /* 26.3 Dripstone Caves Set */
+    CUBE(BLOCK_DRIPSTONE_BLOCK, "Dripstone Block", "block/dripstone_block"),
+    [BLOCK_POINTED_DRIPSTONE] = {.name = "Pointed Dripstone", .tex_top = "block/pointed_dripstone_up_tip",
+        .tex_bottom = "block/pointed_dripstone_up_tip",
+        .tex_side = "block/pointed_dripstone_up_tip", .solid = false, .opaque = false, .shape = SHAPE_CROSS},
+
+    /* 26.3 Deep Dark Sculk Set */
+    CUBE(BLOCK_SCULK, "Sculk", "block/sculk"),
+    CUBE_TB(BLOCK_SCULK_CATALYST, "Sculk Catalyst", "block/sculk_catalyst_top", "block/sculk_catalyst_bottom", "block/sculk_catalyst_side"),
+    CUBE_TB(BLOCK_SCULK_SENSOR, "Sculk Sensor", "block/sculk_sensor_top", "block/sculk_sensor_bottom", "block/sculk_sensor_side"),
+    CUBE_TB(BLOCK_SCULK_SHRIEKER, "Sculk Shrieker", "block/sculk_shrieker_top", "block/sculk_shrieker_bottom", "block/sculk_shrieker_side"),
+
+    /* 26.3 Lush Caves Flora */
+    LEAVES(BLOCK_AZALEA_LEAVES, "Azalea Leaves", "block/azalea_leaves", 1.0f, 1.0f, 1.0f),
+    LEAVES(BLOCK_FLOWERING_AZALEA_LEAVES, "Flowering Azalea Leaves", "block/flowering_azalea_leaves", 1.0f, 1.0f, 1.0f),
 };
 
 uint16_t g_block_tiles[BLOCK_COUNT][FACE_COUNT];
@@ -333,21 +414,32 @@ void blocks_init(const Assets *assets) {
 float block_hardness(uint8_t id) {
     if (id == BLOCK_AIR || id == BLOCK_TNT || id == BLOCK_TORCH ||
         id == BLOCK_DANDELION || id == BLOCK_POPPY || id == BLOCK_SHORT_GRASS ||
-        id == BLOCK_SUGAR_CANE || id == BLOCK_DEAD_BUSH ||
+        id == BLOCK_SUGAR_CANE || id == BLOCK_DEAD_BUSH || id == BLOCK_CHERRY_SAPLING ||
         id == BLOCK_REDSTONE_WIRE || id == BLOCK_REDSTONE_TORCH ||
-        id == BLOCK_LEVER || id == BLOCK_STONE_BUTTON) return 0.0f;
+        id == BLOCK_LEVER || id == BLOCK_STONE_BUTTON || id == BLOCK_PALE_HANGING_MOSS) return 0.0f;
     if (id == BLOCK_BEDROCK) return -1.0f;
     switch (id) {
     case BLOCK_OAK_LEAVES: case BLOCK_BIRCH_LEAVES: case BLOCK_SPRUCE_LEAVES:
     case BLOCK_JUNGLE_LEAVES: case BLOCK_ACACIA_LEAVES: case BLOCK_DARK_OAK_LEAVES:
+    case BLOCK_CHERRY_LEAVES: case BLOCK_PALE_OAK_LEAVES:
+    case BLOCK_AZALEA_LEAVES: case BLOCK_FLOWERING_AZALEA_LEAVES:
     case BLOCK_CACTUS: case BLOCK_SNOW_BLOCK:
         return 0.25f;
 
     case BLOCK_GRASS_BLOCK: case BLOCK_DIRT: case BLOCK_COARSE_DIRT:
     case BLOCK_PODZOL: case BLOCK_MYCELIUM: case BLOCK_SAND:
     case BLOCK_RED_SAND: case BLOCK_GRAVEL: case BLOCK_CLAY:
-    case BLOCK_SOUL_SAND:
+    case BLOCK_SOUL_SAND: case BLOCK_MUD: case BLOCK_PALE_MOSS_BLOCK:
+    case BLOCK_SCULK:
         return 0.55f;
+
+    case BLOCK_SULFUR: case BLOCK_CINNABAR: case BLOCK_POTENT_SULFUR: case BLOCK_SULFUR_SPIKE:
+    case BLOCK_DRIPSTONE_BLOCK:
+    case BLOCK_SCULK_CATALYST: case BLOCK_SCULK_SENSOR: case BLOCK_SCULK_SHRIEKER:
+        return 1.50f;
+
+    case BLOCK_CREAKING_HEART:
+        return 5.0f;
 
     case BLOCK_GLASS: case BLOCK_GLOWSTONE: case BLOCK_SEA_LANTERN:
     case BLOCK_ICE: case BLOCK_PACKED_ICE:
@@ -355,19 +447,46 @@ float block_hardness(uint8_t id) {
 
     case BLOCK_OAK_LOG: case BLOCK_BIRCH_LOG: case BLOCK_SPRUCE_LOG:
     case BLOCK_JUNGLE_LOG: case BLOCK_ACACIA_LOG: case BLOCK_DARK_OAK_LOG:
+    case BLOCK_CHERRY_LOG: case BLOCK_PALE_OAK_LOG:
     case BLOCK_OAK_PLANKS: case BLOCK_BIRCH_PLANKS: case BLOCK_SPRUCE_PLANKS:
     case BLOCK_JUNGLE_PLANKS: case BLOCK_ACACIA_PLANKS: case BLOCK_DARK_OAK_PLANKS:
+    case BLOCK_CHERRY_PLANKS: case BLOCK_PALE_OAK_PLANKS:
     case BLOCK_CRAFTING_TABLE: case BLOCK_FURNACE: case BLOCK_CHEST: case BLOCK_BOOKSHELF: case BLOCK_PUMPKIN:
     case BLOCK_CARVED_PUMPKIN: case BLOCK_JACK_O_LANTERN: case BLOCK_MELON:
     case BLOCK_OAK_SLAB: case BLOCK_OAK_STAIRS:
         return 1.35f;
 
+    case BLOCK_TERRACOTTA: case BLOCK_RED_TERRACOTTA: case BLOCK_ORANGE_TERRACOTTA:
+    case BLOCK_YELLOW_TERRACOTTA: case BLOCK_BROWN_TERRACOTTA: case BLOCK_WHITE_TERRACOTTA:
+    case BLOCK_LIGHT_GRAY_TERRACOTTA:
+        return 1.25f;
+
     case BLOCK_COBBLESTONE_SLAB: case BLOCK_STONE_SLAB: case BLOCK_STONE_BRICK_SLAB:
     case BLOCK_COBBLESTONE_STAIRS: case BLOCK_STONE_BRICK_STAIRS:
+    case BLOCK_CALCITE: case BLOCK_AMETHYST_BLOCK: case BLOCK_TUFF: case BLOCK_TUFF_BRICKS:
+    case BLOCK_MUD_BRICKS: case BLOCK_PACKED_MUD:
         return 1.5f;
+
+    case BLOCK_BLUE_ICE:
+        return 2.8f;
+
+    case BLOCK_CRAFTER:
+        return 2.5f;
+
+    case BLOCK_DEEPSLATE: case BLOCK_COBBLED_DEEPSLATE:
+    case BLOCK_DEEPSLATE_COAL_ORE: case BLOCK_DEEPSLATE_IRON_ORE:
+    case BLOCK_DEEPSLATE_COPPER_ORE: case BLOCK_DEEPSLATE_GOLD_ORE:
+    case BLOCK_DEEPSLATE_REDSTONE_ORE: case BLOCK_DEEPSLATE_EMERALD_ORE:
+    case BLOCK_DEEPSLATE_LAPIS_ORE: case BLOCK_DEEPSLATE_DIAMOND_ORE:
+    case BLOCK_DEEPSLATE_BRICKS: case BLOCK_DEEPSLATE_TILES:
+    case BLOCK_POLISHED_DEEPSLATE: case BLOCK_CHISELED_DEEPSLATE:
+        return 3.0f;
 
     case BLOCK_OBSIDIAN:
         return 10.0f;
+
+    case BLOCK_HEAVY_CORE:
+        return 12.0f;
 
     default:
         return 1.75f;
@@ -436,9 +555,22 @@ ToolType block_required_tool(uint8_t block_id) {
     case BLOCK_COAL_ORE: case BLOCK_IRON_ORE: case BLOCK_COPPER_ORE:
     case BLOCK_GOLD_ORE: case BLOCK_REDSTONE_ORE: case BLOCK_LAPIS_ORE:
     case BLOCK_DIAMOND_ORE: case BLOCK_EMERALD_ORE:
+    case BLOCK_DEEPSLATE_COAL_ORE: case BLOCK_DEEPSLATE_IRON_ORE: case BLOCK_DEEPSLATE_COPPER_ORE:
+    case BLOCK_DEEPSLATE_GOLD_ORE: case BLOCK_DEEPSLATE_REDSTONE_ORE: case BLOCK_DEEPSLATE_EMERALD_ORE:
+    case BLOCK_DEEPSLATE_LAPIS_ORE: case BLOCK_DEEPSLATE_DIAMOND_ORE:
+    case BLOCK_DEEPSLATE_BRICKS: case BLOCK_DEEPSLATE_TILES: case BLOCK_POLISHED_DEEPSLATE:
+    case BLOCK_CHISELED_DEEPSLATE:
     case BLOCK_BRICKS: case BLOCK_STONE_BRICKS: case BLOCK_MOSSY_COBBLESTONE:
     case BLOCK_OBSIDIAN: case BLOCK_NETHERRACK: case BLOCK_FURNACE:
-    case BLOCK_CALCITE: case BLOCK_TUFF: case BLOCK_AMETHYST_BLOCK:
+    case BLOCK_CALCITE: case BLOCK_TUFF: case BLOCK_TUFF_BRICKS: case BLOCK_AMETHYST_BLOCK:
+    case BLOCK_MUD_BRICKS:
+    case BLOCK_TERRACOTTA: case BLOCK_RED_TERRACOTTA: case BLOCK_ORANGE_TERRACOTTA:
+    case BLOCK_YELLOW_TERRACOTTA: case BLOCK_BROWN_TERRACOTTA: case BLOCK_WHITE_TERRACOTTA:
+    case BLOCK_LIGHT_GRAY_TERRACOTTA:
+    case BLOCK_BLUE_ICE: case BLOCK_CRAFTER: case BLOCK_HEAVY_CORE:
+    case BLOCK_SULFUR: case BLOCK_CINNABAR: case BLOCK_POTENT_SULFUR: case BLOCK_SULFUR_SPIKE:
+    case BLOCK_DRIPSTONE_BLOCK: case BLOCK_POINTED_DRIPSTONE:
+    case BLOCK_SCULK_CATALYST: case BLOCK_SCULK_SENSOR: case BLOCK_SCULK_SHRIEKER:
     case BLOCK_COPPER_BLOCK: case BLOCK_IRON_BLOCK: case BLOCK_GOLD_BLOCK:
     case BLOCK_DIAMOND_BLOCK: case BLOCK_EMERALD_BLOCK: case BLOCK_LAPIS_BLOCK:
     case BLOCK_REDSTONE_BLOCK: case BLOCK_COAL_BLOCK: case BLOCK_QUARTZ_BLOCK:
@@ -450,8 +582,10 @@ ToolType block_required_tool(uint8_t block_id) {
 
     case BLOCK_OAK_LOG: case BLOCK_BIRCH_LOG: case BLOCK_SPRUCE_LOG:
     case BLOCK_JUNGLE_LOG: case BLOCK_ACACIA_LOG: case BLOCK_DARK_OAK_LOG:
+    case BLOCK_CHERRY_LOG: case BLOCK_PALE_OAK_LOG: case BLOCK_CREAKING_HEART:
     case BLOCK_OAK_PLANKS: case BLOCK_BIRCH_PLANKS: case BLOCK_SPRUCE_PLANKS:
     case BLOCK_JUNGLE_PLANKS: case BLOCK_ACACIA_PLANKS: case BLOCK_DARK_OAK_PLANKS:
+    case BLOCK_CHERRY_PLANKS: case BLOCK_PALE_OAK_PLANKS:
     case BLOCK_CRAFTING_TABLE: case BLOCK_BOOKSHELF: case BLOCK_CHEST:
     case BLOCK_PUMPKIN: case BLOCK_CARVED_PUMPKIN: case BLOCK_JACK_O_LANTERN:
     case BLOCK_MELON:
@@ -461,7 +595,8 @@ ToolType block_required_tool(uint8_t block_id) {
     case BLOCK_DIRT: case BLOCK_COARSE_DIRT: case BLOCK_GRASS_BLOCK:
     case BLOCK_PODZOL: case BLOCK_MYCELIUM: case BLOCK_SAND:
     case BLOCK_RED_SAND: case BLOCK_GRAVEL: case BLOCK_CLAY:
-    case BLOCK_SOUL_SAND: case BLOCK_SNOW_BLOCK:
+    case BLOCK_SOUL_SAND: case BLOCK_SNOW_BLOCK: case BLOCK_MUD: case BLOCK_PACKED_MUD:
+    case BLOCK_PALE_MOSS_BLOCK:
         return TOOL_SHOVEL;
 
     default:
@@ -487,20 +622,27 @@ bool block_can_harvest(uint8_t block_id, uint8_t held_item) {
 
     case BLOCK_DIAMOND_ORE:
     case BLOCK_DIAMOND_BLOCK:
+    case BLOCK_DEEPSLATE_DIAMOND_ORE:
     case BLOCK_GOLD_ORE:
     case BLOCK_GOLD_BLOCK:
+    case BLOCK_DEEPSLATE_GOLD_ORE:
     case BLOCK_REDSTONE_ORE:
     case BLOCK_REDSTONE_BLOCK:
+    case BLOCK_DEEPSLATE_REDSTONE_ORE:
     case BLOCK_EMERALD_ORE:
     case BLOCK_EMERALD_BLOCK:
+    case BLOCK_DEEPSLATE_EMERALD_ORE:
         return tier >= 3;
 
     case BLOCK_IRON_ORE:
     case BLOCK_IRON_BLOCK:
+    case BLOCK_DEEPSLATE_IRON_ORE:
     case BLOCK_COPPER_ORE:
     case BLOCK_COPPER_BLOCK:
+    case BLOCK_DEEPSLATE_COPPER_ORE:
     case BLOCK_LAPIS_ORE:
     case BLOCK_LAPIS_BLOCK:
+    case BLOCK_DEEPSLATE_LAPIS_ORE:
         return tier >= 2;
 
     default:
@@ -543,11 +685,41 @@ uint8_t block_drop_item(uint8_t block_id, uint8_t held_item) {
     switch (block_id) {
     case BLOCK_STONE: return BLOCK_COBBLESTONE;
     case BLOCK_DEEPSLATE: return BLOCK_COBBLED_DEEPSLATE;
-    case BLOCK_COAL_ORE: return ITEM_COAL;
-    case BLOCK_IRON_ORE: return ITEM_RAW_IRON;
-    case BLOCK_GOLD_ORE: return ITEM_RAW_GOLD;
-    case BLOCK_DIAMOND_ORE: return ITEM_DIAMOND;
-    case BLOCK_REDSTONE_ORE: return ITEM_REDSTONE;
+    case BLOCK_COAL_ORE:
+    case BLOCK_DEEPSLATE_COAL_ORE: return ITEM_COAL;
+    case BLOCK_IRON_ORE:
+    case BLOCK_DEEPSLATE_IRON_ORE: return ITEM_RAW_IRON;
+    case BLOCK_COPPER_ORE:
+    case BLOCK_DEEPSLATE_COPPER_ORE: return ITEM_RAW_COPPER;
+    case BLOCK_GOLD_ORE:
+    case BLOCK_DEEPSLATE_GOLD_ORE: return ITEM_RAW_GOLD;
+    case BLOCK_DIAMOND_ORE:
+    case BLOCK_DEEPSLATE_DIAMOND_ORE: return ITEM_DIAMOND;
+    case BLOCK_REDSTONE_ORE:
+    case BLOCK_DEEPSLATE_REDSTONE_ORE: return ITEM_REDSTONE;
+    case BLOCK_LAPIS_ORE:
+    case BLOCK_DEEPSLATE_LAPIS_ORE: return ITEM_LAPIS_LAZULI;
+    case BLOCK_EMERALD_ORE:
+    case BLOCK_DEEPSLATE_EMERALD_ORE: return ITEM_EMERALD;
+    case BLOCK_CHERRY_LEAVES:
+        return ((rand() % 100) < 5) ? BLOCK_CHERRY_SAPLING : BLOCK_AIR;
+    case BLOCK_PALE_OAK_LEAVES:
+        return ((rand() % 100) < 5) ? ITEM_STICK : BLOCK_AIR;
+    case BLOCK_AZALEA_LEAVES:
+    case BLOCK_FLOWERING_AZALEA_LEAVES:
+        return ((rand() % 100) < 5) ? ITEM_STICK : BLOCK_AIR;
+    case BLOCK_SULFUR: return BLOCK_SULFUR;
+    case BLOCK_CINNABAR: return BLOCK_CINNABAR;
+    case BLOCK_POTENT_SULFUR: return BLOCK_POTENT_SULFUR;
+    case BLOCK_SULFUR_SPIKE: return BLOCK_SULFUR_SPIKE;
+    case BLOCK_CREAKING_HEART: return BLOCK_CREAKING_HEART;
+    case BLOCK_PALE_HANGING_MOSS: return BLOCK_PALE_HANGING_MOSS;
+    case BLOCK_DRIPSTONE_BLOCK: return BLOCK_DRIPSTONE_BLOCK;
+    case BLOCK_POINTED_DRIPSTONE: return BLOCK_POINTED_DRIPSTONE;
+    case BLOCK_SCULK: return BLOCK_SCULK;
+    case BLOCK_SCULK_CATALYST: return BLOCK_SCULK_CATALYST;
+    case BLOCK_SCULK_SENSOR: return BLOCK_SCULK_SENSOR;
+    case BLOCK_SCULK_SHRIEKER: return BLOCK_SCULK_SHRIEKER;
     case BLOCK_OAK_DOOR_OPEN: return BLOCK_OAK_DOOR;
     case BLOCK_IRON_DOOR_OPEN: return BLOCK_IRON_DOOR;
     case BLOCK_OAK_TRAPDOOR_OPEN: return BLOCK_OAK_TRAPDOOR;

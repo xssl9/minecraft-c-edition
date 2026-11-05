@@ -36,7 +36,7 @@ typedef struct {
     float r, g, b;
 } RenderParticle;
 
-typedef struct {
+typedef struct Renderer {
     int width, height;
     float ui_scale;
     int ui_width, ui_height;
@@ -64,6 +64,10 @@ typedef struct {
     GLuint adv_window_tex;
     GLuint adv_stone_tex;
     GLuint steve_tex;
+    GLuint mob_zombie_tex;
+    GLuint mob_skeleton_tex;
+    GLuint mob_creeper_tex;
+    GLuint mob_pig_tex;
 
     /* Authentic HUD and Container GUI textures */
     GLuint gui_hotbar_tex;

@@ -8,15 +8,15 @@
 #include <stdio.h>
 
 #define CHUNK_SIZE 16
-#define WORLD_HEIGHT 128
-#define SEA_LEVEL 52
+#define WORLD_HEIGHT 256
+#define SEA_LEVEL 63
 #define CHUNK_AREA (CHUNK_SIZE * CHUNK_SIZE)
 #define CHUNK_VOLUME (CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT)
 
 typedef struct {
     int cx, cz;
     uint8_t blocks[CHUNK_VOLUME];
-    uint8_t heightmap[CHUNK_AREA];
+    uint16_t heightmap[CHUNK_AREA];
     uint8_t redstone_power[CHUNK_VOLUME];
     bool generated;
     bool dirty;

@@ -1,6 +1,6 @@
 Minecraft C Edition
 
-A small Minecraft-like voxel sandbox written in C11. It uses SDL2 for windowing, OpenGL for rendering with an optional TinyGL software fallback, and imports textures and sounds from a local Minecraft 1.21.1 installation.
+A small Minecraft-like voxel sandbox written in C11. It uses SDL2 for windowing, OpenGL for rendering with an optional TinyGL software fallback, and imports textures and sounds from a local Minecraft 26.3 installation.
 
 The game generates an endless voxel world with biomes, caves, ores, trees, water and lava. It supports creative and survival modes, mining and placing blocks, a hotbar and inventory, crafting, hunger, health, armor, TNT, a day and night cycle, chat commands, and local saves. It is not a complete Minecraft implementation.
 

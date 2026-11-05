@@ -285,6 +285,14 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
     r->adv_stone_tex = load_texture_png(tex_path);
     snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/entity/player/wide/steve.png", assets->root);
     r->steve_tex = load_texture_png(tex_path);
+    snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/entity/zombie/zombie.png", assets->root);
+    r->mob_zombie_tex = load_texture_png(tex_path);
+    snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/entity/skeleton/skeleton.png", assets->root);
+    r->mob_skeleton_tex = load_texture_png(tex_path);
+    snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/entity/creeper/creeper.png", assets->root);
+    r->mob_creeper_tex = load_texture_png(tex_path);
+    snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/entity/pig/pig.png", assets->root);
+    r->mob_pig_tex = load_texture_png(tex_path);
 
     /* Authentic HUD textures */
     snprintf(tex_path, sizeof(tex_path), "%s/minecraft/textures/gui/sprites/hud/hotbar.png", assets->root);
@@ -389,6 +397,10 @@ void renderer_shutdown(Renderer *r) {
     if (r->adv_window_tex) glDeleteTextures(1, &r->adv_window_tex);
     if (r->adv_stone_tex) glDeleteTextures(1, &r->adv_stone_tex);
     if (r->steve_tex) glDeleteTextures(1, &r->steve_tex);
+    if (r->mob_zombie_tex) glDeleteTextures(1, &r->mob_zombie_tex);
+    if (r->mob_skeleton_tex) glDeleteTextures(1, &r->mob_skeleton_tex);
+    if (r->mob_creeper_tex) glDeleteTextures(1, &r->mob_creeper_tex);
+    if (r->mob_pig_tex) glDeleteTextures(1, &r->mob_pig_tex);
     if (r->gui_hotbar_tex) glDeleteTextures(1, &r->gui_hotbar_tex);
     if (r->gui_hotbar_sel_tex) glDeleteTextures(1, &r->gui_hotbar_sel_tex);
     if (r->gui_crosshair_tex) glDeleteTextures(1, &r->gui_crosshair_tex);
@@ -684,7 +696,7 @@ void renderer_clouds(Renderer *r, float world_time, Vec3 eye) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D, r->clouds_tex);
 
-    float cloud_y = 128.0f;
+    float cloud_y = 192.0f;
     float cloud_offset = world_time * 0.8f;
     float span = fmaxf(512.0f, (float)(r->render_radius + 4) * CHUNK_SIZE);
     float x0 = eye.x - span, x1 = eye.x + span;
@@ -1103,7 +1115,9 @@ static inline uint8_t fast_neighbour(Chunk *c, Chunk *nb_e, Chunk *nb_w, Chunk *
 static inline bool is_leaves(uint8_t id) {
     return id == BLOCK_OAK_LEAVES || id == BLOCK_BIRCH_LEAVES ||
            id == BLOCK_SPRUCE_LEAVES || id == BLOCK_JUNGLE_LEAVES ||
-           id == BLOCK_ACACIA_LEAVES || id == BLOCK_DARK_OAK_LEAVES;
+           id == BLOCK_ACACIA_LEAVES || id == BLOCK_DARK_OAK_LEAVES ||
+           id == BLOCK_CHERRY_LEAVES || id == BLOCK_PALE_OAK_LEAVES ||
+           id == BLOCK_AZALEA_LEAVES || id == BLOCK_FLOWERING_AZALEA_LEAVES;
 }
 
 static bool face_visible(uint8_t id, uint8_t nb) {

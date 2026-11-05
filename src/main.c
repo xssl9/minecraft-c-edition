@@ -537,6 +537,23 @@ static void setup_scene(App *a, const char *scene) {
         a->player.pos = vec3((float)sx, (float)sy + 1.2f, (float)sz + 2.0f);
         a->player.yaw = 180.0f;
         a->player.pitch = -5.0f;
+    } else if (!strcmp(scene, "mobs")) {
+        for (int dx = -6; dx <= 6; dx++) {
+            for (int dz = 2; dz <= 14; dz++) {
+                for (int dy = 0; dy <= 4; dy++)
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_AIR, false);
+                world_set_block(&a->world, sx + dx, sy - 1, sz + dz, BLOCK_STONE_BRICKS, false);
+            }
+        }
+        entity_spawn(&a->entities, ENTITY_ZOMBIE, vec3((float)sx - 3.0f, (float)sy, (float)sz + 6.0f));
+        entity_spawn(&a->entities, ENTITY_SKELETON, vec3((float)sx - 1.0f, (float)sy, (float)sz + 6.0f));
+        entity_spawn(&a->entities, ENTITY_CREEPER, vec3((float)sx + 1.0f, (float)sy, (float)sz + 6.0f));
+        entity_spawn(&a->entities, ENTITY_PIG, vec3((float)sx + 3.0f, (float)sy, (float)sz + 6.0f));
+
+        a->player.pos = vec3((float)sx, (float)sy + 0.2f, (float)sz + 2.0f);
+        a->player.yaw = 180.0f;
+        a->player.pitch = -10.0f;
+        a->player.hotbar[a->player.selected] = ITEM_MACE;
     }
     if (a->has_yaw) a->player.yaw = a->forced_yaw;
     if (a->has_pitch) a->player.pitch = a->forced_pitch;
@@ -594,6 +611,10 @@ static void start_world(App *a, bool new_world) {
     if (a->has_pitch) a->player.pitch = a->forced_pitch;
     if (load_ok)
         player_load(a);
+    if (a->has_eye_override) {
+        a->player.pos = vec3(a->eye_override[0], a->eye_override[1], a->eye_override[2]);
+        a->player.flying = true;
+    }
     if (a->has_yaw) a->player.yaw = a->forced_yaw;
     if (a->has_pitch) a->player.pitch = a->forced_pitch;
     a->player.dead = false;
@@ -602,7 +623,7 @@ static void start_world(App *a, bool new_world) {
     a->player.regen_timer = 0;
 
     /* Keep the player out of terrain if a save was made inside a wall. */
-    if (block_is_solid(world_get_block(&a->world,
+    if (!a->has_eye_override && block_is_solid(world_get_block(&a->world,
             (int)floorf(a->player.pos.x), (int)floorf(a->player.pos.y + 0.1f),
             (int)floorf(a->player.pos.z)))) {
         a->player.pos = vec3((float)sx + 0.5f, (float)sy + 0.1f, (float)sz + 0.5f);
@@ -615,9 +636,6 @@ static void start_world(App *a, bool new_world) {
         snprintf(status, sizeof(status), "Generating terrain... %d%%", pct);
         present_loading(a, status, 0.05f + (float)pct * 0.01f);
         world_preload(&a->world, a->player.pos.x, a->player.pos.z, r);
-    }
-    if (a->scene_name) {
-        setup_scene(a, a->scene_name);
     }
     present_loading(a, "Building chunk meshes...", 0.82f);
     renderer_warmup(&a->renderer, &a->world,
@@ -633,6 +651,9 @@ static void start_world(App *a, bool new_world) {
     a->active_tnt_count = 0;
     a->dropped_count = 0;
     entity_manager_init(&a->entities, &a->assets);
+    if (a->scene_name) {
+        setup_scene(a, a->scene_name);
+    }
     a->save_timer = 0;
     a->cave_timer = 25;
     a->step_accum = 0;
@@ -1017,6 +1038,21 @@ static void execute_chat_command(App *a, const char *raw_line) {
             char msg[96];
             snprintf(msg, sizeof(msg), "Render distance: %d chunks (%dm). Usage: /rd <2-32>",
                      a->renderer.render_radius, a->renderer.render_radius * CHUNK_SIZE);
+            ui_chat_add(&a->ui, msg, (Color3){1.0f, 1.0f, 0.35f});
+        }
+    } else if (strcmp(cmd, "summon") == 0 || strcmp(cmd, "spawnmob") == 0) {
+        EntityType t = ENTITY_ZOMBIE;
+        if (n >= 2) {
+            if (strcasecmp(arg1, "skeleton") == 0) t = ENTITY_SKELETON;
+            else if (strcasecmp(arg1, "creeper") == 0) t = ENTITY_CREEPER;
+            else if (strcasecmp(arg1, "pig") == 0) t = ENTITY_PIG;
+            else if (strcasecmp(arg1, "arrow") == 0) t = ENTITY_ARROW;
+        }
+        Vec3 spawn_pos = vec3(a->player.pos.x + 2.0f, a->player.pos.y, a->player.pos.z + 2.0f);
+        Entity *sp = entity_spawn(&a->entities, t, spawn_pos);
+        if (sp) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Summoned %s", (t == ENTITY_ZOMBIE) ? "Zombie" : (t == ENTITY_SKELETON ? "Skeleton" : (t == ENTITY_CREEPER ? "Creeper" : "Pig")));
             ui_chat_add(&a->ui, msg, (Color3){1.0f, 1.0f, 0.35f});
         }
     } else if (strcmp(cmd, "help") == 0) {
@@ -1826,6 +1862,35 @@ static void update_playing(App *a, float dt) {
     update_dropped_items(a, dt);
     update_active_tnt(a, dt);
     entity_update_all(&a->entities, &a->world, &a->player, &a->audio, dt, a->world_time);
+
+    /* Natural mob spawning */
+    static float mob_spawn_timer = 0.0f;
+    mob_spawn_timer += dt;
+    if (mob_spawn_timer > 3.0f) {
+        mob_spawn_timer = 0.0f;
+        if (a->entities.count < 18) {
+            float ang = (float)(rand() % 360) * 3.14159f / 180.0f;
+            float r = 18.0f + (float)(rand() % 16);
+            int mx = (int)floorf(a->player.pos.x + cosf(ang) * r);
+            int mz = (int)floorf(a->player.pos.z + sinf(ang) * r);
+            int my = world_height_at(&a->world, mx, mz);
+            if (my > 0 && my < WORLD_HEIGHT - 3) {
+                uint8_t ground = world_get_block(&a->world, mx, my, mz);
+                uint8_t above = world_get_block(&a->world, mx, my + 1, mz);
+                uint8_t above2 = world_get_block(&a->world, mx, my + 2, mz);
+                if (block_is_solid(ground) && above == BLOCK_AIR && above2 == BLOCK_AIR) {
+                    bool night = (a->world_time < 0.20f || a->world_time > 0.80f || my < 50);
+                    if (night) {
+                        int roll = rand() % 3;
+                        EntityType t = (roll == 0) ? ENTITY_ZOMBIE : (roll == 1 ? ENTITY_SKELETON : ENTITY_CREEPER);
+                        entity_spawn(&a->entities, t, vec3((float)mx + 0.5f, (float)my + 1.05f, (float)mz + 0.5f));
+                    } else if (ground == BLOCK_GRASS_BLOCK) {
+                        entity_spawn(&a->entities, ENTITY_PIG, vec3((float)mx + 0.5f, (float)my + 1.05f, (float)mz + 0.5f));
+                    }
+                }
+            }
+        }
+    }
     player_update_furnace(&a->player, dt);
 
     float dx = a->player.pos.x - before.x;
@@ -1851,7 +1916,38 @@ static void update_playing(App *a, float dt) {
     if (a->ui.screen == UI_SCREEN_NONE) {
         if (a->mouse_left) {
             a->player.swing_timer = 0.25f;
-            if (a->player.target_valid) {
+
+            /* Check entity hit (mob melee attack) */
+            Vec3 eye = player_eye(&a->player);
+            Vec3 look = player_forward(&a->player);
+            Entity *hit_ent = entity_raycast(&a->entities, eye, look, 3.8f);
+            if (hit_ent && a->player.break_cooldown <= 0.0f) {
+                uint8_t held = a->player.hotbar[a->player.selected];
+                float dmg = 1.0f;
+                if (held == ITEM_WOODEN_SWORD) dmg = 4.0f;
+                else if (held == ITEM_STONE_SWORD) dmg = 5.0f;
+                else if (held == ITEM_IRON_SWORD) dmg = 6.0f;
+                else if (held == ITEM_DIAMOND_SWORD) dmg = 7.0f;
+                else if (held == ITEM_MACE) dmg = 9.0f;
+                else if (held == ITEM_DIAMOND_AXE) dmg = 9.0f;
+                else if (held == ITEM_IRON_AXE) dmg = 8.0f;
+
+                Vec3 kb = vec3_mul(look, 7.0f);
+                kb.y = 4.0f;
+                bool killed = entity_damage(&a->entities, hit_ent, dmg, kb, &a->audio);
+                if (killed) {
+                    if (hit_ent->type == ENTITY_ZOMBIE)
+                        spawn_dropped_item(a, ITEM_ROTTEN_FLESH, (int)hit_ent->pos.x, (int)hit_ent->pos.y, (int)hit_ent->pos.z);
+                    else if (hit_ent->type == ENTITY_SKELETON) {
+                        spawn_dropped_item(a, ITEM_BONE, (int)hit_ent->pos.x, (int)hit_ent->pos.y, (int)hit_ent->pos.z);
+                        spawn_dropped_item(a, ITEM_ARROW, (int)hit_ent->pos.x, (int)hit_ent->pos.y, (int)hit_ent->pos.z);
+                    } else if (hit_ent->type == ENTITY_PIG)
+                        spawn_dropped_item(a, ITEM_COOKED_BEEF, (int)hit_ent->pos.x, (int)hit_ent->pos.y, (int)hit_ent->pos.z);
+                    else if (hit_ent->type == ENTITY_CREEPER)
+                        spawn_dropped_item(a, ITEM_REDSTONE, (int)hit_ent->pos.x, (int)hit_ent->pos.y, (int)hit_ent->pos.z);
+                }
+                a->player.break_cooldown = 0.35f;
+            } else if (a->player.target_valid) {
                 int bx = a->player.target_x;
                 int by = a->player.target_y;
                 int bz = a->player.target_z;
@@ -2171,7 +2267,7 @@ static void render_frame(App *a) {
                 renderer_tnt(&a->renderer, a->active_tnt[i].pos, a->active_tnt[i].fuse);
         }
 
-        entity_render_all(&a->entities, &a->assets, &a->player.pos);
+        entity_render_all(&a->entities, &a->renderer, &a->player.pos);
 
         if (a->ui.screen == UI_SCREEN_NONE || a->ui.screen == UI_SCREEN_PAUSE) {
             if (a->player.target_valid) {
