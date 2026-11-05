@@ -955,34 +955,87 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
         }
     }
 
-    /* 3D Cave systems: Noodle tunnels, Cheese caverns with lava lakes at Y <= 11 */
+    /* 3D Cave systems: Minecraft 26.3 Cheese caverns, Spaghetti tunnels, noodle branches & ravines */
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             int wx = c->cx * CHUNK_SIZE + lx;
             int wz = c->cz * CHUNK_SIZE + lz;
             int h = c->heightmap[lx + lz * CHUNK_SIZE];
-            if (h <= SEA_LEVEL + 2)
+
+            /* Ocean and surface protection: never puncture ocean floor or river beds */
+            int max_carve_y;
+            if (h <= SEA_LEVEL + 2) {
+                max_carve_y = h - 6; /* Protect ocean and river beds */
+            } else {
+                max_carve_y = h;     /* Allow natural cave entrances and canyon mouths on land */
+            }
+            if (max_carve_y <= 4)
                 continue;
-            for (int y = 4; y < h - 3; y++) {
+
+            /* Vary tunnel thickness along the winding path (2.5 to 5.5 blocks diameter) */
+            float t_thick = 0.0072f + 0.0036f * noise3(wx * 0.016f, 32.0f * 0.022f, wz * 0.016f, w->seed ^ 0xABCDEF01ULL);
+
+            for (int y = 4; y <= max_carve_y; y++) {
                 uint8_t b = c->blocks[chunk_index_local(lx, y, lz)];
                 if (b == BLOCK_AIR || b == BLOCK_BEDROCK || b == BLOCK_WATER || b == BLOCK_LAVA)
                     continue;
-                bool carve = false;
-                float n1 = noise3(wx * 0.040f, y * 0.050f, wz * 0.040f, w->seed ^ 0xC0FFEEULL);
-                if (fabsf(n1) < 0.065f) {
-                    float n2 = noise3(wx * 0.040f, y * 0.050f, wz * 0.040f, w->seed ^ 0xBADC0DEULL);
-                    if (fabsf(n2) < 0.075f) {
-                        carve = true;
+
+                /* 1. Primary Spaghetti Tunnel (smooth winding 3D cylinder) */
+                float a1 = noise3(wx * 0.026f, y * 0.034f, wz * 0.026f, w->seed ^ 0x10203040ULL);
+                float a2 = noise3(wx * 0.026f, y * 0.034f, wz * 0.026f, w->seed ^ 0x50607080ULL);
+                float d_tunnel = a1 * a1 + a2 * a2;
+
+                /* 2. Secondary Cross-Connecting Branch Network */
+                float b1 = noise3(wx * 0.022f, y * 0.028f, wz * 0.022f, w->seed ^ 0x90A0B0C0ULL);
+                float b2 = noise3(wx * 0.022f, y * 0.028f, wz * 0.022f, w->seed ^ 0xD0E0F001ULL);
+                float d_branch = b1 * b1 + b2 * b2;
+
+                bool carve = (d_tunnel < t_thick) || (d_branch < t_thick * 0.85f);
+
+                /* 3. Cheese Caverns: Vast vaulted halls, domed chambers, and natural stone pillars */
+                if (!carve && y >= 10 && y <= 56) {
+                    float env = sinf((float)(y - 10) / (56.0f - 10.0f) * 3.14159f);
+                    if (env > 0.22f) {
+                        float cheese = fbm3(wx * 0.014f, y * 0.018f, wz * 0.014f, w->seed ^ 0xCAFE7777ULL, 2);
+                        float pillar = noise2(wx * 0.032f, wz * 0.032f, w->seed ^ 0x88884444ULL);
+                        if (cheese * env > 0.36f && fabsf(pillar) > 0.12f) {
+                            carve = true;
+                        }
                     }
                 }
-                if (!carve && y < 65) {
-                    float cavern = fbm3(wx * 0.016f, y * 0.020f, wz * 0.016f, w->seed ^ 0x1234ABCDULL, 2);
-                    if (cavern > 0.54f)
-                        carve = true;
+
+                /* 4. Sinuous Canyons & Deep Ravines */
+                if (!carve && y >= 12 && y <= h - 1 && h > SEA_LEVEL + 2) {
+                    float rav = noise2(wx * 0.007f, wz * 0.007f, w->seed ^ 0xAA55AA55ULL);
+                    float twist = noise3(wx * 0.020f, y * 0.035f, wz * 0.020f, w->seed ^ 0x55AA55AAULL) * 0.030f;
+                    float dist = fabsf(rav + twist);
+                    float span = 1.0f - fabsf((float)y - 34.0f) / 38.0f;
+                    if (span > 0.0f) {
+                        float rav_w = 0.016f * span;
+                        if (dist < rav_w) {
+                            carve = true;
+                        }
+                    }
                 }
+
                 if (carve) {
-                    /* Authentic Minecraft Java Y <= 11 lava lake fill */
+                    /* Authentic Minecraft Y <= 11 lava lake fill */
                     c->blocks[chunk_index_local(lx, y, lz)] = (y <= 11) ? BLOCK_LAVA : BLOCK_AIR;
+                }
+            }
+
+            /* Natural cave mouth surface cleanup: adjust heightmap and ground flora */
+            if (c->blocks[chunk_index_local(lx, h, lz)] == BLOCK_AIR) {
+                int new_h = h - 1;
+                while (new_h > 0 && c->blocks[chunk_index_local(lx, new_h, lz)] == BLOCK_AIR) {
+                    new_h--;
+                }
+                c->heightmap[lx + lz * CHUNK_SIZE] = (uint16_t)new_h;
+                if (new_h > SEA_LEVEL) {
+                    uint8_t floor_b = c->blocks[chunk_index_local(lx, new_h, lz)];
+                    if (floor_b == BLOCK_DIRT || floor_b == BLOCK_STONE) {
+                        c->blocks[chunk_index_local(lx, new_h, lz)] = BLOCK_GRASS_BLOCK;
+                    }
                 }
             }
         }
@@ -1332,7 +1385,7 @@ void world_update(World *w, double player_x, double player_z) {
         return;
 
     int radius = w->load_radius + 1;
-    int budget = 3;
+    int budget = 24;
     bool any_missing = false;
     for (int r = 0; r <= radius && budget > 0; r++) {
         for (int dz = -r; dz <= r && budget > 0; dz++) {
@@ -1349,7 +1402,7 @@ void world_update(World *w, double player_x, double player_z) {
             }
         }
     }
-    if (!any_missing && budget == 3) {
+    if (!any_missing && budget == 24) {
         w->fully_loaded = true;
     }
     world_tick_liquids(w);

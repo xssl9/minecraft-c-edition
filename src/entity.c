@@ -21,6 +21,10 @@ Entity *entity_spawn(EntityManager *em, EntityType type, Vec3 pos) {
     if (type == ENTITY_NONE)
         return NULL;
 
+    /* Living mobs disabled per user request to eliminate lag and glitches */
+    if (type != ENTITY_ARROW)
+        return NULL;
+
     int slot = -1;
     for (int i = 0; i < MAX_ENTITIES; i++) {
         if (!em->list[i].active) {
@@ -197,10 +201,18 @@ static void explode_creeper(World *w, EntityManager *em, Player *p, Audio *audio
 }
 
 void entity_update_all(EntityManager *em, World *w, Player *p, Audio *audio, float dt, float world_time) {
+    (void)world_time;
     for (int i = 0; i < MAX_ENTITIES; i++) {
         Entity *e = &em->list[i];
         if (!e->active)
             continue;
+
+        /* Living mobs disabled per user request */
+        if (e->type != ENTITY_ARROW) {
+            e->active = false;
+            em->count--;
+            continue;
+        }
 
         if (e->hurt_timer > 0.0f)
             e->hurt_timer -= dt;
@@ -531,7 +543,7 @@ void entity_render_all(const EntityManager *em, const Renderer *renderer, const 
 
     for (int i = 0; i < MAX_ENTITIES; i++) {
         const Entity *e = &em->list[i];
-        if (!e->active)
+        if (!e->active || e->type != ENTITY_ARROW)
             continue;
 
         glPushMatrix();

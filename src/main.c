@@ -545,11 +545,6 @@ static void setup_scene(App *a, const char *scene) {
                 world_set_block(&a->world, sx + dx, sy - 1, sz + dz, BLOCK_STONE_BRICKS, false);
             }
         }
-        entity_spawn(&a->entities, ENTITY_ZOMBIE, vec3((float)sx - 3.0f, (float)sy, (float)sz + 6.0f));
-        entity_spawn(&a->entities, ENTITY_SKELETON, vec3((float)sx - 1.0f, (float)sy, (float)sz + 6.0f));
-        entity_spawn(&a->entities, ENTITY_CREEPER, vec3((float)sx + 1.0f, (float)sy, (float)sz + 6.0f));
-        entity_spawn(&a->entities, ENTITY_PIG, vec3((float)sx + 3.0f, (float)sy, (float)sz + 6.0f));
-
         a->player.pos = vec3((float)sx, (float)sy + 0.2f, (float)sz + 2.0f);
         a->player.yaw = 180.0f;
         a->player.pitch = -10.0f;
@@ -614,6 +609,23 @@ static void start_world(App *a, bool new_world) {
     if (a->has_eye_override) {
         a->player.pos = vec3(a->eye_override[0], a->eye_override[1], a->eye_override[2]);
         a->player.flying = true;
+        int px = (int)floorf(a->player.pos.x);
+        int py = (int)floorf(a->player.pos.y + 0.1f);
+        int pz = (int)floorf(a->player.pos.z);
+        world_preload(&a->world, px, pz, 1);
+        if (block_is_solid(world_get_block(&a->world, px, py, pz))) {
+            int found_y = -1;
+            for (int dy = 1; dy <= 25; dy++) {
+                if (!block_is_solid(world_get_block(&a->world, px, py - dy, pz)) && py - dy >= 4) {
+                    found_y = py - dy; break;
+                }
+                if (!block_is_solid(world_get_block(&a->world, px, py + dy, pz)) && py + dy < WORLD_HEIGHT - 4) {
+                    found_y = py + dy; break;
+                }
+            }
+            if (found_y > 0)
+                a->player.pos.y = (float)found_y + 0.1f;
+        }
     }
     if (a->has_yaw) a->player.yaw = a->forced_yaw;
     if (a->has_pitch) a->player.pitch = a->forced_pitch;
@@ -1041,19 +1053,12 @@ static void execute_chat_command(App *a, const char *raw_line) {
             ui_chat_add(&a->ui, msg, (Color3){1.0f, 1.0f, 0.35f});
         }
     } else if (strcmp(cmd, "summon") == 0 || strcmp(cmd, "spawnmob") == 0) {
-        EntityType t = ENTITY_ZOMBIE;
-        if (n >= 2) {
-            if (strcasecmp(arg1, "skeleton") == 0) t = ENTITY_SKELETON;
-            else if (strcasecmp(arg1, "creeper") == 0) t = ENTITY_CREEPER;
-            else if (strcasecmp(arg1, "pig") == 0) t = ENTITY_PIG;
-            else if (strcasecmp(arg1, "arrow") == 0) t = ENTITY_ARROW;
-        }
-        Vec3 spawn_pos = vec3(a->player.pos.x + 2.0f, a->player.pos.y, a->player.pos.z + 2.0f);
-        Entity *sp = entity_spawn(&a->entities, t, spawn_pos);
-        if (sp) {
-            char msg[64];
-            snprintf(msg, sizeof(msg), "Summoned %s", (t == ENTITY_ZOMBIE) ? "Zombie" : (t == ENTITY_SKELETON ? "Skeleton" : (t == ENTITY_CREEPER ? "Creeper" : "Pig")));
-            ui_chat_add(&a->ui, msg, (Color3){1.0f, 1.0f, 0.35f});
+        if (n >= 2 && strcasecmp(arg1, "arrow") == 0) {
+            Vec3 spawn_pos = vec3(a->player.pos.x + 2.0f, a->player.pos.y, a->player.pos.z + 2.0f);
+            entity_spawn(&a->entities, ENTITY_ARROW, spawn_pos);
+            ui_chat_add(&a->ui, "Summoned Arrow", (Color3){1.0f, 1.0f, 0.35f});
+        } else {
+            ui_chat_add(&a->ui, "Mobs are disabled", (Color3){1.0f, 0.4f, 0.4f});
         }
     } else if (strcmp(cmd, "help") == 0) {
         ui_chat_add(&a->ui, "--- Commands Help ---", (Color3){0.4f, 1.0f, 0.4f});
@@ -1863,34 +1868,6 @@ static void update_playing(App *a, float dt) {
     update_active_tnt(a, dt);
     entity_update_all(&a->entities, &a->world, &a->player, &a->audio, dt, a->world_time);
 
-    /* Natural mob spawning */
-    static float mob_spawn_timer = 0.0f;
-    mob_spawn_timer += dt;
-    if (mob_spawn_timer > 3.0f) {
-        mob_spawn_timer = 0.0f;
-        if (a->entities.count < 18) {
-            float ang = (float)(rand() % 360) * 3.14159f / 180.0f;
-            float r = 18.0f + (float)(rand() % 16);
-            int mx = (int)floorf(a->player.pos.x + cosf(ang) * r);
-            int mz = (int)floorf(a->player.pos.z + sinf(ang) * r);
-            int my = world_height_at(&a->world, mx, mz);
-            if (my > 0 && my < WORLD_HEIGHT - 3) {
-                uint8_t ground = world_get_block(&a->world, mx, my, mz);
-                uint8_t above = world_get_block(&a->world, mx, my + 1, mz);
-                uint8_t above2 = world_get_block(&a->world, mx, my + 2, mz);
-                if (block_is_solid(ground) && above == BLOCK_AIR && above2 == BLOCK_AIR) {
-                    bool night = (a->world_time < 0.20f || a->world_time > 0.80f || my < 50);
-                    if (night) {
-                        int roll = rand() % 3;
-                        EntityType t = (roll == 0) ? ENTITY_ZOMBIE : (roll == 1 ? ENTITY_SKELETON : ENTITY_CREEPER);
-                        entity_spawn(&a->entities, t, vec3((float)mx + 0.5f, (float)my + 1.05f, (float)mz + 0.5f));
-                    } else if (ground == BLOCK_GRASS_BLOCK) {
-                        entity_spawn(&a->entities, ENTITY_PIG, vec3((float)mx + 0.5f, (float)my + 1.05f, (float)mz + 0.5f));
-                    }
-                }
-            }
-        }
-    }
     player_update_furnace(&a->player, dt);
 
     float dx = a->player.pos.x - before.x;
@@ -2249,7 +2226,7 @@ static void render_frame(App *a) {
         }
         renderer_sky(&a->renderer, a->world_time, eye, a->player.yaw, a->player.pitch);
         renderer_world(&a->renderer, &a->world, eye,
-                       a->player.yaw, a->player.pitch, 16);
+                       a->player.yaw, a->player.pitch, 32);
         renderer_clouds(&a->renderer, a->world_time, eye);
         renderer_particles_draw(&a->renderer, eye,
                                 a->player.yaw, a->player.pitch);
