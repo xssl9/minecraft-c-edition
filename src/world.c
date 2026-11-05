@@ -2,9 +2,11 @@
 
 #include "mced.h"
 #include "noise.h"
+#include "thread_pool.h"
 
 #include <errno.h>
 #include <math.h>
+#include <pthread.h>
 
 #define WORLD_MAGIC "MCW1"
 
@@ -36,15 +38,38 @@ void world_init(World *w, uint64_t seed, int load_radius) {
     w->last_pcx = 999999;
     w->last_pcz = 999999;
     w->fully_loaded = false;
+
+    pthread_mutex_t *mtx = malloc(sizeof(pthread_mutex_t));
+    if (mtx) {
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(mtx, &attr);
+        pthread_mutexattr_destroy(&attr);
+    }
+    w->chunk_mutex = mtx;
 }
 
 void world_destroy(World *w) {
+    if (w->pool) {
+        thread_pool_wait_idle(w->pool);
+    }
+    if (w->chunk_mutex) {
+        pthread_mutex_t *mtx = (pthread_mutex_t *)w->chunk_mutex;
+        pthread_mutex_destroy(mtx);
+        free(mtx);
+        w->chunk_mutex = NULL;
+    }
     for (int i = 0; i < w->chunk_count; i++)
         free(w->chunks[i]);
     free(w->chunks);
     free(w->chunk_hash);
     free(w->mods);
     memset(w, 0, sizeof(*w));
+}
+
+void world_set_thread_pool(World *w, struct ThreadPool *pool) {
+    w->pool = pool;
 }
 
 static void chunk_hash_insert(World *w, Chunk *c) {
@@ -79,6 +104,8 @@ static void world_add_chunk(World *w, Chunk *c) {
 }
 
 Chunk *world_find_chunk(World *w, int cx, int cz, bool create) {
+    if (w->chunk_mutex) pthread_mutex_lock((pthread_mutex_t *)w->chunk_mutex);
+    Chunk *res = NULL;
     if (w->chunk_hash_capacity > 0) {
         int mask = w->chunk_hash_capacity - 1;
         uint32_t slot = chunk_hash_key(cx, cz) & (uint32_t)mask;
@@ -86,16 +113,20 @@ Chunk *world_find_chunk(World *w, int cx, int cz, bool create) {
             Chunk *c = w->chunk_hash[slot];
             if (!c)
                 break;
-            if (c->cx == cx && c->cz == cz)
-                return c;
+            if (c->cx == cx && c->cz == cz) {
+                res = c;
+                break;
+            }
             slot = (slot + 1) & (uint32_t)mask;
         }
     }
-    if (!create)
-        return NULL;
-    Chunk *c = chunk_new(cx, cz);
-    world_add_chunk(w, c);
-    return c;
+    if (!res && create) {
+        Chunk *c = chunk_new(cx, cz);
+        world_add_chunk(w, c);
+        res = c;
+    }
+    if (w->chunk_mutex) pthread_mutex_unlock((pthread_mutex_t *)w->chunk_mutex);
+    return res;
 }
 
 Chunk *world_get_chunk(World *w, int cx, int cz, bool create) {
@@ -1513,14 +1544,29 @@ void world_generate_chunk_for_edit(World *w, Chunk *c) {
 
     /* Existing neighbours now have a real border to hide faces against. */
     Chunk *n;
-    if ((n = world_find_chunk(w, c->cx - 1, c->cz, false))) n->dirty = true;
-    if ((n = world_find_chunk(w, c->cx + 1, c->cz, false))) n->dirty = true;
-    if ((n = world_find_chunk(w, c->cx, c->cz - 1, false))) n->dirty = true;
-    if ((n = world_find_chunk(w, c->cx, c->cz + 1, false))) n->dirty = true;
+    if ((n = world_find_chunk(w, c->cx - 1, c->cz, false))) { n->dirty = true; n->version++; }
+    if ((n = world_find_chunk(w, c->cx + 1, c->cz, false))) { n->dirty = true; n->version++; }
+    if ((n = world_find_chunk(w, c->cx, c->cz - 1, false))) { n->dirty = true; n->version++; }
+    if ((n = world_find_chunk(w, c->cx, c->cz + 1, false))) { n->dirty = true; n->version++; }
 }
 
 static void world_generate_chunk(World *w, Chunk *c) {
     world_generate_chunk_for_edit(w, c);
+}
+
+typedef struct {
+    World *w;
+    Chunk *c;
+} ChunkGenJob;
+
+static void chunk_gen_worker(void *arg) {
+    ChunkGenJob *job = (ChunkGenJob *)arg;
+    World *w = job->w;
+    Chunk *c = job->c;
+    world_generate_chunk_for_edit(w, c);
+    c->generating = false;
+    c->version++;
+    free(job);
 }
 
 void world_preload(World *w, double player_x, double player_z, int radius) {
@@ -1532,10 +1578,22 @@ void world_preload(World *w, double player_x, double player_z, int radius) {
                 if (r > 0 && abs(dx) != r && abs(dz) != r)
                     continue;
                 Chunk *c = world_find_chunk(w, pcx + dx, pcz + dz, true);
-                if (!c->generated)
-                    world_generate_chunk(w, c);
+                if (!c->generated && !c->generating) {
+                    if (w->pool) {
+                        c->generating = true;
+                        ChunkGenJob *job = malloc(sizeof(ChunkGenJob));
+                        job->w = w;
+                        job->c = c;
+                        thread_pool_submit(w->pool, chunk_gen_worker, job);
+                    } else {
+                        world_generate_chunk(w, c);
+                    }
+                }
             }
         }
+    }
+    if (w->pool) {
+        thread_pool_wait_idle(w->pool);
     }
 }
 
@@ -1553,24 +1611,46 @@ void world_update(World *w, double player_x, double player_z) {
         return;
 
     int radius = w->load_radius + 1;
-    int budget = 24;
     bool any_missing = false;
-    for (int r = 0; r <= radius && budget > 0; r++) {
-        for (int dz = -r; dz <= r && budget > 0; dz++) {
-            for (int dx = -r; dx <= r && budget > 0; dx++) {
+    int submitted = 0;
+    for (int r = 0; r <= radius; r++) {
+        for (int dz = -r; dz <= r; dz++) {
+            for (int dx = -r; dx <= r; dx++) {
                 if (r > 0 && abs(dx) != r && abs(dz) != r)
                     continue;
-                Chunk *c = world_find_chunk(w, pcx + dx, pcz + dz, false);
-                if (!c) {
+                int cx = pcx + dx;
+                int cz = pcz + dz;
+                Chunk *c = world_find_chunk(w, cx, cz, false);
+                if (!c || !c->generated) {
                     any_missing = true;
-                    c = world_find_chunk(w, pcx + dx, pcz + dz, true);
-                    world_generate_chunk(w, c);
-                    budget--;
+                    if (!c) {
+                        c = world_find_chunk(w, cx, cz, true);
+                    }
+                    if (!c->generated && !c->generating) {
+                        if (w->pool) {
+                            c->generating = true;
+                            ChunkGenJob *job = malloc(sizeof(ChunkGenJob));
+                            job->w = w;
+                            job->c = c;
+                            thread_pool_submit(w->pool, chunk_gen_worker, job);
+                            submitted++;
+                            if (submitted >= 16) {
+                                goto update_done;
+                            }
+                        } else {
+                            world_generate_chunk(w, c);
+                            submitted++;
+                            if (submitted >= 4) {
+                                goto update_done;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-    if (!any_missing && budget == 24) {
+update_done:;
+    if (!any_missing && submitted == 0) {
         w->fully_loaded = true;
     }
     world_tick_liquids(w);

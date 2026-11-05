@@ -39,6 +39,7 @@ add_executable(mced
   src/audio.c
   src/settings.c
   src/entity.c
+  src/thread_pool.c
 )
 
 target_include_directories(mced PRIVATE
@@ -48,11 +49,11 @@ target_include_directories(mced PRIVATE
 
 if(MCED_USE_GL)
   target_compile_definitions(mced PRIVATE MCED_USE_GL=1)
-  target_link_libraries(mced PRIVATE OpenGL::GL PkgConfig::SDL2 m)
+  target_link_libraries(mced PRIVATE OpenGL::GL PkgConfig::SDL2 m pthread)
 else()
   target_compile_definitions(mced PRIVATE MCED_USE_GL=0)
   target_include_directories(mced PRIVATE third_party/tinygl/include)
-  target_link_libraries(mced PRIVATE tinygl-static PkgConfig::SDL2 m)
+  target_link_libraries(mced PRIVATE tinygl-static PkgConfig::SDL2 m pthread)
 endif()
 
 target_compile_options(mced PRIVATE -O3 -march=native -Wall -Wextra -Wno-unused-parameter)
@@ -77,11 +78,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_all.c")
     src/audio.c
     src/settings.c
     src/entity.c
+    src/thread_pool.c
   )
   target_include_directories(verify_all PRIVATE src third_party)
   if(MCED_USE_GL)
     target_compile_definitions(verify_all PRIVATE MCED_USE_GL=1)
-    target_link_libraries(verify_all PRIVATE OpenGL::GL PkgConfig::SDL2 m)
+    target_link_libraries(verify_all PRIVATE OpenGL::GL PkgConfig::SDL2 m pthread)
   endif()
   if(VORBISFILE_LIB AND VORBIS_LIB AND OGG_LIB)
     target_compile_definitions(verify_all PRIVATE MCED_HAVE_VORBIS=1)

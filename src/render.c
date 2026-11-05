@@ -1,8 +1,10 @@
 #include "render.h"
 
 #include "blocks.h"
+#include "thread_pool.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <time.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -103,6 +105,8 @@ struct ChunkMesh {
     int capacity;
     int min_y, max_y;
     bool built;
+    bool meshing;
+    uint32_t version;
 #if MCED_USE_GL
     GLuint list;
 #endif
@@ -190,6 +194,13 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
     r->render_radius = 16;
     r->scratch_verts_capacity = 65536;
     r->scratch_verts = xmalloc((size_t)r->scratch_verts_capacity * sizeof(RVertex));
+
+    pthread_mutex_t *cmtx = malloc(sizeof(pthread_mutex_t));
+    if (cmtx) {
+        pthread_mutex_init(cmtx, NULL);
+    }
+    r->completed_mutex = cmtx;
+
     r->fog_color[0] = 0.72f;
     r->fog_color[1] = 0.84f;
     r->fog_color[2] = 1.0f;
@@ -365,17 +376,27 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
     return true;
 }
 
+void renderer_set_thread_pool(Renderer *r, struct ThreadPool *pool) {
+    r->pool = pool;
+}
+
 void renderer_shutdown(Renderer *r) {
-    for (int i = 0; i < r->chunk_count; i++) {
-        free(r->chunks[i].verts);
-#if MCED_USE_GL
-        if (r->chunks[i].list)
-            glDeleteLists(r->chunks[i].list, 1);
-#endif
+    renderer_reset_chunks(r);
+    if (r->completed_mutex) {
+        pthread_mutex_destroy((pthread_mutex_t *)r->completed_mutex);
+        free(r->completed_mutex);
+        r->completed_mutex = NULL;
     }
+    free(r->completed_meshes);
+    r->completed_meshes = NULL;
+    r->completed_count = 0;
+    r->completed_capacity = 0;
     free(r->chunks);
+    r->chunks = NULL;
     free(r->mesh_hash);
+    r->mesh_hash = NULL;
     free(r->scratch_verts);
+    r->scratch_verts = NULL;
     if (r->atlas_tex) glDeleteTextures(1, &r->atlas_tex);
     if (r->menu_tex) glDeleteTextures(1, &r->menu_tex);
     for (int i = 0; i < 6; i++) {
@@ -798,26 +819,31 @@ static ChunkMesh *mesh_get(Renderer *r, int cx, int cz) {
     return m;
 }
 
-static inline void scratch_push(Renderer *r, RVertex a, RVertex b, RVertex c, RVertex d, int *count) {
-    if (*count + 4 > r->scratch_verts_capacity) {
-        r->scratch_verts_capacity = r->scratch_verts_capacity ? r->scratch_verts_capacity * 2 : 65536;
-        r->scratch_verts = xrealloc(r->scratch_verts, (size_t)r->scratch_verts_capacity * sizeof(RVertex));
+typedef struct {
+    RVertex *verts;
+    int count;
+    int capacity;
+} MeshBuffer;
+
+static inline void mesh_buf_push(MeshBuffer *mb, RVertex a, RVertex b, RVertex c, RVertex d) {
+    if (mb->count + 4 > mb->capacity) {
+        mb->capacity = mb->capacity ? mb->capacity * 2 : 16384;
+        mb->verts = xrealloc(mb->verts, (size_t)mb->capacity * sizeof(RVertex));
     }
-    r->scratch_verts[(*count)++] = a;
-    r->scratch_verts[(*count)++] = b;
-    r->scratch_verts[(*count)++] = c;
-    r->scratch_verts[(*count)++] = d;
+    mb->verts[mb->count++] = a;
+    mb->verts[mb->count++] = b;
+    mb->verts[mb->count++] = c;
+    mb->verts[mb->count++] = d;
 }
 
+static const float AO_LUT[8] = {
+    1.00f, 0.85f, 0.85f, 0.70f,
+    0.85f, 0.70f, 0.50f, 0.50f
+};
+
 static inline float vertex_ao(bool s1, bool s2, bool c) {
-    if (s1 && s2) return 0.50f;
-    int count = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (c ? 1 : 0);
-    switch (count) {
-    case 3: return 0.55f;
-    case 2: return 0.70f;
-    case 1: return 0.85f;
-    default: return 1.00f;
-    }
+    int idx = ((int)s1 << 2) | ((int)s2 << 1) | (int)c;
+    return AO_LUT[idx];
 }
 
 static void vert(RVertex *v, float x, float y, float z, float u, float vv,
@@ -829,7 +855,7 @@ static void vert(RVertex *v, float x, float y, float z, float u, float vv,
     v->b = sh * tb;
 }
 
-static void emit_face(Renderer *r, int *vert_count, const Assets *assets, int face, uint16_t tile,
+static void emit_face(MeshBuffer *mb, const Assets *assets, int face, uint16_t tile,
                       float x, float y, float z, float h,
                       float sh, float tr, float tg, float tb,
                       const float ao[4]) {
@@ -883,10 +909,10 @@ static void emit_face(Renderer *r, int *vert_count, const Assets *assets, int fa
     default:
         return;
     }
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 }
 
-static void emit_cross(Renderer *r, int *vert_count, const Assets *assets, uint16_t tile,
+static void emit_cross(MeshBuffer *mb, const Assets *assets, uint16_t tile,
                        float x, float y, float z, float h, float sh, float tr, float tg, float tb) {
     float u0, v0, u1, v1;
     assets_tile_uv(assets, tile, &u0, &v0, &u1, &v1);
@@ -896,27 +922,27 @@ static void emit_cross(Renderer *r, int *vert_count, const Assets *assets, uint1
     vert(&b, x + 0.15f, y, z + 0.15f, u0, v1, sh, tr, tg, tb);
     vert(&c, x + 0.85f, y, z + 0.85f, u1, v1, sh, tr, tg, tb);
     vert(&d, x + 0.85f, y + h, z + 0.85f, u1, v0, sh, tr, tg, tb);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
     vert(&a, x + 0.85f, y + h, z + 0.85f, u1, v0, sh, tr, tg, tb);
     vert(&b, x + 0.85f, y, z + 0.85f, u1, v1, sh, tr, tg, tb);
     vert(&c, x + 0.15f, y, z + 0.15f, u0, v1, sh, tr, tg, tb);
     vert(&d, x + 0.15f, y + h, z + 0.15f, u0, v0, sh, tr, tg, tb);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 
     /* Diagonal 2 */
     vert(&a, x + 0.15f, y + h, z + 0.85f, u0, v0, sh, tr, tg, tb);
     vert(&b, x + 0.15f, y, z + 0.85f, u0, v1, sh, tr, tg, tb);
     vert(&c, x + 0.85f, y, z + 0.15f, u1, v1, sh, tr, tg, tb);
     vert(&d, x + 0.85f, y + h, z + 0.15f, u1, v0, sh, tr, tg, tb);
-    scratch_push(r, a, b, c, d, vert_count);
-    vert(&a, x + 0.85f, y + h, z + 0.15f, u1, v0, sh, tr, tg, tb);
+    mesh_buf_push(mb, a, b, c, d);
+    vert(&a, x + 0.85f, y + h, z + 0.85f, u1, v0, sh, tr, tg, tb);
     vert(&b, x + 0.85f, y, z + 0.15f, u1, v1, sh, tr, tg, tb);
     vert(&c, x + 0.15f, y, z + 0.85f, u0, v1, sh, tr, tg, tb);
     vert(&d, x + 0.15f, y + h, z + 0.85f, u0, v0, sh, tr, tg, tb);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 }
 
-static void emit_flat_floor(Renderer *r, int *vert_count, const Assets *assets, uint16_t tile,
+static void emit_flat_floor(MeshBuffer *mb, const Assets *assets, uint16_t tile,
                             float x, float y, float z, float sh, float tr, float tg, float tb) {
     float u0, v0, u1, v1;
     assets_tile_uv(assets, tile, &u0, &v0, &u1, &v1);
@@ -926,10 +952,10 @@ static void emit_flat_floor(Renderer *r, int *vert_count, const Assets *assets, 
     vert(&b, x, y_flat, z + 1, u0, v1, sh, tr, tg, tb);
     vert(&c, x + 1, y_flat, z + 1, u1, v1, sh, tr, tg, tb);
     vert(&d, x + 1, y_flat, z, u1, v0, sh, tr, tg, tb);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 }
 
-static void emit_door(Renderer *r, int *vert_count, const Assets *assets, uint8_t id, bool is_top,
+static void emit_door(MeshBuffer *mb, const Assets *assets, uint8_t id, bool is_top,
                       float x, float y, float z) {
     bool open = (id == BLOCK_OAK_DOOR_OPEN || id == BLOCK_IRON_DOOR_OPEN);
     bool iron = (id == BLOCK_IRON_DOOR || id == BLOCK_IRON_DOOR_OPEN);
@@ -954,35 +980,35 @@ static void emit_door(Renderer *r, int *vert_count, const Assets *assets, uint8_
         vert(&b, x, y, z + t, u0, v1, sh, 1, 1, 1);
         vert(&c, x + 1.0f, y, z + t, u1, v1, sh, 1, 1, 1);
         vert(&d, x + 1.0f, y + 1.0f, z + t, u1, v0, sh, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* North face (back) */
         vert(&a, x + 1.0f, y + 1.0f, z, u0, v0, sh, 1, 1, 1);
         vert(&b, x + 1.0f, y, z, u0, v1, sh, 1, 1, 1);
         vert(&c, x, y, z, u1, v1, sh, 1, 1, 1);
         vert(&d, x, y + 1.0f, z, u1, v0, sh, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* West edge */
         vert(&a, x, y + 1.0f, z, u0, v0, 0.65f, 1, 1, 1);
         vert(&b, x, y, z, u0, v1, 0.65f, 1, 1, 1);
         vert(&c, x, y, z + t, u1, v1, 0.65f, 1, 1, 1);
         vert(&d, x, y + 1.0f, z + t, u1, v0, 0.65f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* East edge */
         vert(&a, x + 1.0f, y + 1.0f, z + t, u0, v0, 0.65f, 1, 1, 1);
         vert(&b, x + 1.0f, y, z + t, u0, v1, 0.65f, 1, 1, 1);
         vert(&c, x + 1.0f, y, z, u1, v1, 0.65f, 1, 1, 1);
         vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, 0.65f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* Top edge */
         vert(&a, x, y + 1.0f, z, u0, v0, 1.0f, 1, 1, 1);
         vert(&b, x, y + 1.0f, z + t, u0, v1, 1.0f, 1, 1, 1);
         vert(&c, x + 1.0f, y + 1.0f, z + t, u1, v1, 1.0f, 1, 1, 1);
         vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, 1.0f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
     } else {
         /* Open door: rotated 90 degrees along X axis */
         /* East face */
@@ -990,39 +1016,39 @@ static void emit_door(Renderer *r, int *vert_count, const Assets *assets, uint8_
         vert(&b, x + t, y, z + 1.0f, u0, v1, sh, 1, 1, 1);
         vert(&c, x + t, y, z, u1, v1, sh, 1, 1, 1);
         vert(&d, x + t, y + 1.0f, z, u1, v0, sh, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* West face */
         vert(&a, x, y + 1.0f, z, u0, v0, sh, 1, 1, 1);
         vert(&b, x, y, z, u0, v1, sh, 1, 1, 1);
         vert(&c, x, y, z + 1.0f, u1, v1, sh, 1, 1, 1);
         vert(&d, x, y + 1.0f, z + 1.0f, u1, v0, sh, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* North edge */
         vert(&a, x + t, y + 1.0f, z, u0, v0, 0.65f, 1, 1, 1);
         vert(&b, x + t, y, z, u0, v1, 0.65f, 1, 1, 1);
         vert(&c, x, y, z, u1, v1, 0.65f, 1, 1, 1);
         vert(&d, x, y + 1.0f, z, u1, v0, 0.65f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* South edge */
         vert(&a, x, y + 1.0f, z + 1.0f, u0, v0, 0.65f, 1, 1, 1);
         vert(&b, x, y, z + 1.0f, u0, v1, 0.65f, 1, 1, 1);
         vert(&c, x + t, y, z + 1.0f, u1, v1, 0.65f, 1, 1, 1);
         vert(&d, x + t, y + 1.0f, z + 1.0f, u1, v0, 0.65f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
 
         /* Top edge */
         vert(&a, x, y + 1.0f, z, u0, v0, 1.0f, 1, 1, 1);
         vert(&b, x, y + 1.0f, z + 1.0f, u0, v1, 1.0f, 1, 1, 1);
         vert(&c, x + t, y + 1.0f, z + 1.0f, u1, v1, 1.0f, 1, 1, 1);
         vert(&d, x + t, y + 1.0f, z, u1, v0, 1.0f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
     }
 }
 
-static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint8_t id,
+static void emit_cactus(MeshBuffer *mb, const Assets *assets, uint8_t id,
                         float x, float y, float z, bool draw_top, bool draw_bottom) {
     float u0, v0, u1, v1;
     RVertex a, b, c, d;
@@ -1034,7 +1060,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
         vert(&b, x,        y + 1.0f, z + 1.0f, u0, v1, 1.0f, 1, 1, 1);
         vert(&c, x + 1.0f, y + 1.0f, z + 1.0f, u1, v1, 1.0f, 1, 1, 1);
         vert(&d, x + 1.0f, y + 1.0f, z,        u1, v0, 1.0f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
     }
 
     /* Bottom face (full 1x1 at y) */
@@ -1044,7 +1070,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
         vert(&b, x,        y, z,        u0, v1, 0.5f, 1, 1, 1);
         vert(&c, x + 1.0f, y, z,        u1, v1, 0.5f, 1, 1, 1);
         vert(&d, x + 1.0f, y, z + 1.0f, u1, v0, 0.5f, 1, 1, 1);
-        scratch_push(r, a, b, c, d, vert_count);
+        mesh_buf_push(mb, a, b, c, d);
     }
 
     float sh_ns = 0.80f;
@@ -1057,7 +1083,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
     vert(&b, x + 1.0f, y,        z + inset, u0, v1, sh_ns, 1, 1, 1);
     vert(&c, x,        y,        z + inset, u1, v1, sh_ns, 1, 1, 1);
     vert(&d, x,        y + 1.0f, z + inset, u1, v0, sh_ns, 1, 1, 1);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 
     /* South face (at z + 1 - inset, facing +Z) */
     assets_tile_uv(assets, g_block_tiles[id][FACE_SOUTH], &u0, &v0, &u1, &v1);
@@ -1065,7 +1091,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
     vert(&b, x,        y,        z + 1.0f - inset, u0, v1, sh_ns, 1, 1, 1);
     vert(&c, x + 1.0f, y,        z + 1.0f - inset, u1, v1, sh_ns, 1, 1, 1);
     vert(&d, x + 1.0f, y + 1.0f, z + 1.0f - inset, u1, v0, sh_ns, 1, 1, 1);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 
     /* West face (at x + inset, facing -X) */
     assets_tile_uv(assets, g_block_tiles[id][FACE_WEST], &u0, &v0, &u1, &v1);
@@ -1073,7 +1099,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
     vert(&b, x + inset, y,        z,        u0, v1, sh_ew, 1, 1, 1);
     vert(&c, x + inset, y,        z + 1.0f, u1, v1, sh_ew, 1, 1, 1);
     vert(&d, x + inset, y + 1.0f, z + 1.0f, u1, v0, sh_ew, 1, 1, 1);
-    scratch_push(r, a, b, c, d, vert_count);
+    mesh_buf_push(mb, a, b, c, d);
 
     /* East face (at x + 1 - inset, facing +X) */
     assets_tile_uv(assets, g_block_tiles[id][FACE_EAST], &u0, &v0, &u1, &v1);
@@ -1081,35 +1107,7 @@ static void emit_cactus(Renderer *r, int *vert_count, const Assets *assets, uint
     vert(&b, x + 1.0f - inset, y,        z + 1.0f, u0, v1, sh_ew, 1, 1, 1);
     vert(&c, x + 1.0f - inset, y,        z,        u1, v1, sh_ew, 1, 1, 1);
     vert(&d, x + 1.0f - inset, y + 1.0f, z,        u1, v0, sh_ew, 1, 1, 1);
-    scratch_push(r, a, b, c, d, vert_count);
-}
-
-static inline uint8_t fast_neighbour(Chunk *c, Chunk *nb_e, Chunk *nb_w, Chunk *nb_s, Chunk *nb_n,
-                                     int lx, int y, int lz, int dx, int dy, int dz) {
-    int ny = y + dy;
-    if (ny < 0 || ny >= WORLD_HEIGHT)
-        return BLOCK_AIR;
-    int nx = lx + dx;
-    int nz = lz + dz;
-    if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE)
-        return c->blocks[chunk_index_local(nx, ny, nz)];
-    if (nx < 0) {
-        if (!nb_w || !nb_w->generated) return BLOCK_AIR;
-        return nb_w->blocks[chunk_index_local(CHUNK_SIZE - 1, ny, nz)];
-    }
-    if (nx >= CHUNK_SIZE) {
-        if (!nb_e || !nb_e->generated) return BLOCK_AIR;
-        return nb_e->blocks[chunk_index_local(0, ny, nz)];
-    }
-    if (nz < 0) {
-        if (!nb_n || !nb_n->generated) return BLOCK_AIR;
-        return nb_n->blocks[chunk_index_local(nx, ny, CHUNK_SIZE - 1)];
-    }
-    if (nz >= CHUNK_SIZE) {
-        if (!nb_s || !nb_s->generated) return BLOCK_AIR;
-        return nb_s->blocks[chunk_index_local(nx, ny, 0)];
-    }
-    return BLOCK_AIR;
+    mesh_buf_push(mb, a, b, c, d);
 }
 
 static inline bool is_leaves(uint8_t id) {
@@ -1142,81 +1140,85 @@ static bool face_visible(uint8_t id, uint8_t nb) {
     return true;
 }
 
-static inline bool is_solid_block(World *w, Chunk *c, Chunk *nb_e, Chunk *nb_w, Chunk *nb_s, Chunk *nb_n,
-                                   int lx, int y, int lz, int dx, int dy, int dz) {
+typedef struct {
+    Chunk *c;
+    Chunk *nb_e, *nb_w, *nb_s, *nb_n;
+    Chunk *nb_ne, *nb_nw, *nb_se, *nb_sw;
+    const Assets *assets;
+    bool smooth_lighting;
+    uint32_t version;
+    Renderer *r;
+} MeshTask;
+
+static inline bool is_chunk_ready(Chunk *c) {
+    return c && c->generated && !c->generating;
+}
+
+static inline uint8_t fast_neighbour8(const MeshTask *task, int lx, int y, int lz, int dx, int dy, int dz) {
     int ny = y + dy;
     if (ny < 0 || ny >= WORLD_HEIGHT)
-        return false;
+        return BLOCK_AIR;
     int nx = lx + dx;
     int nz = lz + dz;
     if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE)
-        return block_is_opaque(c->blocks[chunk_index_local(nx, ny, nz)]);
-    if (nx < 0 && nz >= 0 && nz < CHUNK_SIZE && nb_w && nb_w->generated)
-        return block_is_opaque(nb_w->blocks[chunk_index_local(CHUNK_SIZE - 1, ny, nz)]);
-    if (nx >= CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE && nb_e && nb_e->generated)
-        return block_is_opaque(nb_e->blocks[chunk_index_local(0, ny, nz)]);
-    if (nz < 0 && nx >= 0 && nx < CHUNK_SIZE && nb_n && nb_n->generated)
-        return block_is_opaque(nb_n->blocks[chunk_index_local(nx, ny, CHUNK_SIZE - 1)]);
-    if (nz >= CHUNK_SIZE && nx >= 0 && nx < CHUNK_SIZE && nb_s && nb_s->generated)
-        return block_is_opaque(nb_s->blocks[chunk_index_local(nx, ny, 0)]);
-    return block_is_opaque(world_get_block(w, c->cx * CHUNK_SIZE + nx, ny, c->cz * CHUNK_SIZE + nz));
+        return task->c->blocks[chunk_index_local(nx, ny, nz)];
+    if (nx >= CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE)
+        return is_chunk_ready(task->nb_e) ? task->nb_e->blocks[chunk_index_local(0, ny, nz)] : BLOCK_AIR;
+    if (nx < 0 && nz >= 0 && nz < CHUNK_SIZE)
+        return is_chunk_ready(task->nb_w) ? task->nb_w->blocks[chunk_index_local(CHUNK_SIZE - 1, ny, nz)] : BLOCK_AIR;
+    if (nz >= CHUNK_SIZE && nx >= 0 && nx < CHUNK_SIZE)
+        return is_chunk_ready(task->nb_s) ? task->nb_s->blocks[chunk_index_local(nx, ny, 0)] : BLOCK_AIR;
+    if (nz < 0 && nx >= 0 && nx < CHUNK_SIZE)
+        return is_chunk_ready(task->nb_n) ? task->nb_n->blocks[chunk_index_local(nx, ny, CHUNK_SIZE - 1)] : BLOCK_AIR;
+    if (nx >= CHUNK_SIZE && nz < 0)
+        return is_chunk_ready(task->nb_ne) ? task->nb_ne->blocks[chunk_index_local(0, ny, CHUNK_SIZE - 1)] : BLOCK_AIR;
+    if (nx < 0 && nz < 0)
+        return is_chunk_ready(task->nb_nw) ? task->nb_nw->blocks[chunk_index_local(CHUNK_SIZE - 1, ny, CHUNK_SIZE - 1)] : BLOCK_AIR;
+    if (nx >= CHUNK_SIZE && nz >= CHUNK_SIZE)
+        return is_chunk_ready(task->nb_se) ? task->nb_se->blocks[chunk_index_local(0, ny, 0)] : BLOCK_AIR;
+    if (nx < 0 && nz >= CHUNK_SIZE)
+        return is_chunk_ready(task->nb_sw) ? task->nb_sw->blocks[chunk_index_local(CHUNK_SIZE - 1, ny, 0)] : BLOCK_AIR;
+    return BLOCK_AIR;
 }
 
-static void build_chunk_mesh(Renderer *r, World *w, Chunk *c, ChunkMesh *m) {
+static inline bool is_solid_block8(const MeshTask *task, int lx, int y, int lz, int dx, int dy, int dz) {
+    uint8_t b = fast_neighbour8(task, lx, y, lz, dx, dy, dz);
+    return block_is_opaque(b);
+}
+
+static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_min_y, int *out_max_y) {
     static const float shade[FACE_COUNT] = {1.00f, 0.50f, 0.80f, 0.80f, 0.65f, 0.65f};
     static const int fdx[FACE_COUNT] = {0, 0, 0, 0, 1, -1};
     static const int fdy[FACE_COUNT] = {1, -1, 0, 0, 0, 0};
     static const int fdz[FACE_COUNT] = {0, 0, -1, 1, 0, 0};
 
-    m->count = 0;
-    m->min_y = WORLD_HEIGHT;
-    m->max_y = 0;
-    const Assets *assets = r->assets;
-
-    /* Pre-fetch direct 4 neighbors for instant O(1) boundary lookups */
-    Chunk *nb_east  = world_find_chunk(w, c->cx + 1, c->cz, false);
-    Chunk *nb_west  = world_find_chunk(w, c->cx - 1, c->cz, false);
-    Chunk *nb_south = world_find_chunk(w, c->cx, c->cz + 1, false);
-    Chunk *nb_north = world_find_chunk(w, c->cx, c->cz - 1, false);
-
-    /* Determine maximum non-air block height to skip empty upper atmosphere */
+    Chunk *c = task->c;
+    int min_y = WORLD_HEIGHT;
     int max_y = 0;
-    for (int y = WORLD_HEIGHT - 1; y >= 0; y--) {
-        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                if (c->blocks[chunk_index_local(lx, y, lz)] != BLOCK_AIR) {
-                    max_y = y;
-                    goto found_max;
-                }
-            }
-        }
-    }
-found_max:;
+    const Assets *assets = task->assets;
 
+    /* Heightmap accelerated scan: 256 checks instead of 65536 checks */
+    for (int i = 0; i < CHUNK_AREA; i++) {
+        if (c->heightmap[i] > max_y)
+            max_y = c->heightmap[i];
+    }
     if (max_y == 0) {
         bool has_blocks = false;
-        for (int lx = 0; lx < CHUNK_SIZE; lx++) {
-            for (int lz = 0; lz < CHUNK_SIZE; lz++) {
-                if (c->blocks[chunk_index_local(lx, 0, lz)] != BLOCK_AIR) {
-                    has_blocks = true;
-                    break;
-                }
+        for (int i = 0; i < CHUNK_AREA; i++) {
+            if (c->blocks[i] != BLOCK_AIR) {
+                has_blocks = true;
+                break;
             }
-            if (has_blocks) break;
         }
         if (!has_blocks) {
-            m->count = 0;
-#if MCED_USE_GL
-            if (m->list) {
-                glDeleteLists(m->list, 1);
-                m->list = 0;
-            }
-#endif
+            *out_min_y = 0;
+            *out_max_y = 0;
             return;
         }
     }
+    max_y += 16;
+    if (max_y >= WORLD_HEIGHT) max_y = WORLD_HEIGHT - 1;
 
-    int vert_count = 0;
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             for (int y = 0; y <= max_y; y++) {
@@ -1225,27 +1227,27 @@ found_max:;
                     continue;
                 const BlockDef *def = &g_block_defs[id];
                 if (def->shape == SHAPE_TORCH) {
-                    if (y < m->min_y) m->min_y = y;
-                    if (y + 1 > m->max_y) m->max_y = y + 1;
-                    emit_cross(r, &vert_count, assets, g_block_tiles[id][FACE_TOP],
+                    if (y < min_y) min_y = y;
+                    if (y + 1 > max_y) max_y = y + 1;
+                    emit_cross(mb, assets, g_block_tiles[id][FACE_TOP],
                                (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                                (float)(c->cz * CHUNK_SIZE + lz), 0.75f, 1.0f, 1.0f, 1.0f, 1.0f);
                     continue;
                 }
                 if (def->shape == SHAPE_CROSS) {
-                    if (y < m->min_y) m->min_y = y;
-                    if (y + 1 > m->max_y) m->max_y = y + 1;
+                    if (y < min_y) min_y = y;
+                    if (y + 1 > max_y) max_y = y + 1;
                     float cr = (def->tint_mode != TINT_NONE) ? def->tint_r : 1.0f;
                     float cg = (def->tint_mode != TINT_NONE) ? def->tint_g : 1.0f;
                     float cb = (def->tint_mode != TINT_NONE) ? def->tint_b : 1.0f;
-                    emit_cross(r, &vert_count, assets, g_block_tiles[id][FACE_TOP],
+                    emit_cross(mb, assets, g_block_tiles[id][FACE_TOP],
                                (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                                (float)(c->cz * CHUNK_SIZE + lz), 1.0f, 1.0f, cr, cg, cb);
                     continue;
                 }
                 if (def->shape == SHAPE_FLAT_FLOOR) {
-                    if (y < m->min_y) m->min_y = y;
-                    if (y + 1 > m->max_y) m->max_y = y + 1;
+                    if (y < min_y) min_y = y;
+                    if (y + 1 > max_y) max_y = y + 1;
                     float r_val = def->tint_r, g_val = def->tint_g, b_val = def->tint_b;
                     uint8_t p = c->redstone_power[chunk_index_local(lx, y, lz)];
                     if (p > 0) {
@@ -1253,26 +1255,26 @@ found_max:;
                         g_val = 0.05f;
                         b_val = 0.05f;
                     }
-                    emit_flat_floor(r, &vert_count, assets, g_block_tiles[id][FACE_TOP],
+                    emit_flat_floor(mb, assets, g_block_tiles[id][FACE_TOP],
                                     (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                                     (float)(c->cz * CHUNK_SIZE + lz), 1.0f, r_val, g_val, b_val);
                     continue;
                 }
                 if (def->shape == SHAPE_DOOR) {
-                    if (y < m->min_y) m->min_y = y;
-                    if (y + 1 > m->max_y) m->max_y = y + 1;
+                    if (y < min_y) min_y = y;
+                    if (y + 1 > max_y) max_y = y + 1;
                     bool is_top = (y > 0 && g_block_defs[c->blocks[chunk_index_local(lx, y - 1, lz)]].shape == SHAPE_DOOR);
-                    emit_door(r, &vert_count, assets, id, is_top,
+                    emit_door(mb, assets, id, is_top,
                               (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                               (float)(c->cz * CHUNK_SIZE + lz));
                     continue;
                 }
                 if (def->shape == SHAPE_CACTUS) {
-                    if (y < m->min_y) m->min_y = y;
-                    if (y + 1 > m->max_y) m->max_y = y + 1;
-                    uint8_t nb_up = fast_neighbour(c, nb_east, nb_west, nb_south, nb_north, lx, y, lz, 0, 1, 0);
-                    uint8_t nb_dn = fast_neighbour(c, nb_east, nb_west, nb_south, nb_north, lx, y, lz, 0, -1, 0);
-                    emit_cactus(r, &vert_count, assets, id,
+                    if (y < min_y) min_y = y;
+                    if (y + 1 > max_y) max_y = y + 1;
+                    uint8_t nb_up = fast_neighbour8(task, lx, y, lz, 0, 1, 0);
+                    uint8_t nb_dn = fast_neighbour8(task, lx, y, lz, 0, -1, 0);
+                    emit_cactus(mb, assets, id,
                                 (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                                 (float)(c->cz * CHUNK_SIZE + lz),
                                 nb_up != BLOCK_CACTUS, nb_dn != BLOCK_CACTUS);
@@ -1280,8 +1282,7 @@ found_max:;
                 }
                 float h = def->liquid ? 0.875f : (def->shape == SHAPE_SLAB ? 0.5f : 1.0f);
                 for (int f = 0; f < FACE_COUNT; f++) {
-                    uint8_t nb = fast_neighbour(c, nb_east, nb_west, nb_south, nb_north,
-                                                lx, y, lz, fdx[f], fdy[f], fdz[f]);
+                    uint8_t nb = fast_neighbour8(task, lx, y, lz, fdx[f], fdy[f], fdz[f]);
                     if (!face_visible(id, nb))
                         continue;
                     float tt = 1, tg2 = 1, tb2 = 1;
@@ -1294,15 +1295,15 @@ found_max:;
                     float sh = shade[f];
                     if (def->light > 0)
                         sh = 1.0f;
-                    if (y < m->min_y)
-                        m->min_y = y;
-                    if (y + 1 > m->max_y)
-                        m->max_y = y + 1;
+                    if (y < min_y)
+                        min_y = y;
+                    if (y + 1 > max_y)
+                        max_y = y + 1;
 
                     float ao[4] = {1.0f, 1.0f, 1.0f, 1.0f};
                     const float *ao_ptr = NULL;
-                    if (r->smooth_lighting && def->light == 0 && !def->liquid) {
-                        #define S(dx, dy, dz) is_solid_block(w, c, nb_east, nb_west, nb_south, nb_north, lx, y, lz, dx, dy, dz)
+                    if (task->smooth_lighting && def->light == 0 && !def->liquid) {
+                        #define S(dx, dy, dz) is_solid_block8(task, lx, y, lz, dx, dy, dz)
                         switch (f) {
                         case FACE_TOP:
                             ao[0] = vertex_ao(S(-1, 1, 0), S(0, 1, -1), S(-1, 1, -1));
@@ -1345,7 +1346,7 @@ found_max:;
                         ao_ptr = ao;
                     }
 
-                    emit_face(r, &vert_count, assets, f, g_block_tiles[id][f],
+                    emit_face(mb, assets, f, g_block_tiles[id][f],
                               (float)(c->cx * CHUNK_SIZE + lx),
                               (float)y,
                               (float)(c->cz * CHUNK_SIZE + lz),
@@ -1354,35 +1355,43 @@ found_max:;
             }
         }
     }
+    *out_min_y = min_y;
+    *out_max_y = max_y;
+}
 
-    m->count = vert_count;
-#if MCED_USE_GL
-    if (vert_count > 0) {
-        if (!m->list)
-            m->list = glGenLists(1);
-        glNewList(m->list, GL_COMPILE);
-        glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-        glEnableClientState(GL_COLOR_ARRAY);
-        glVertexPointer(3, GL_FLOAT, sizeof(RVertex), &r->scratch_verts[0].x);
-        glTexCoordPointer(2, GL_FLOAT, sizeof(RVertex), &r->scratch_verts[0].u);
-        glColorPointer(3, GL_FLOAT, sizeof(RVertex), &r->scratch_verts[0].r);
-        glDrawArrays(GL_QUADS, 0, vert_count);
-        glEndList();
-    } else if (m->list) {
-        glDeleteLists(m->list, 1);
-        m->list = 0;
-    }
-#else
-    if (vert_count > 0) {
-        if (m->capacity < vert_count) {
-            m->capacity = vert_count;
-            m->verts = xrealloc(m->verts, (size_t)m->capacity * sizeof(RVertex));
+static void chunk_mesh_worker(void *arg) {
+    MeshTask *task = (MeshTask *)arg;
+    MeshBuffer mb = {0};
+    mb.capacity = 16384;
+    mb.verts = malloc((size_t)mb.capacity * sizeof(RVertex));
+
+    int min_y = WORLD_HEIGHT;
+    int max_y = 0;
+    mesh_chunk_geometry(task, &mb, &min_y, &max_y);
+
+    Renderer *r = task->r;
+    CompletedMesh cm;
+    cm.cx = task->c->cx;
+    cm.cz = task->c->cz;
+    cm.version = task->version;
+    cm.verts = mb.verts;
+    cm.count = mb.count;
+    cm.min_y = min_y;
+    cm.max_y = max_y;
+
+    if (r->completed_mutex) {
+        pthread_mutex_lock((pthread_mutex_t *)r->completed_mutex);
+        if (r->completed_count == r->completed_capacity) {
+            r->completed_capacity = r->completed_capacity ? r->completed_capacity * 2 : 64;
+            r->completed_meshes = xrealloc(r->completed_meshes, (size_t)r->completed_capacity * sizeof(CompletedMesh));
         }
-        memcpy(m->verts, r->scratch_verts, (size_t)vert_count * sizeof(RVertex));
+        r->completed_meshes[r->completed_count++] = cm;
+        pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+    } else {
+        free(mb.verts);
     }
-#endif
-    m->built = true;
+
+    free(task);
 }
 
 static int chunk_distance(int cx, int cz, int pcx, int pcz) {
@@ -1403,12 +1412,69 @@ static void sync_chunks(Renderer *r, World *w, Vec3 eye, int budget, bool all) {
         r->all_built = false;
     }
 
+    /* 1. Drain completed meshes from background worker threads */
+    int drain_limit = all ? 999999 : 16;
+    int drained = 0;
+    while (drained < drain_limit) {
+        CompletedMesh cm;
+        if (!r->completed_mutex) break;
+        pthread_mutex_lock((pthread_mutex_t *)r->completed_mutex);
+        if (r->completed_count == 0) {
+            pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+            break;
+        }
+        cm = r->completed_meshes[--r->completed_count];
+        pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+
+        ChunkMesh *m = mesh_find(r, cm.cx, cm.cz);
+        if (m && m->version == cm.version) {
+            m->min_y = cm.min_y;
+            m->max_y = cm.max_y;
+            m->count = cm.count;
+#if MCED_USE_GL
+            if (cm.count > 0) {
+                if (!m->list)
+                    m->list = glGenLists(1);
+                glNewList(m->list, GL_COMPILE);
+                glEnableClientState(GL_VERTEX_ARRAY);
+                glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                glEnableClientState(GL_COLOR_ARRAY);
+                glVertexPointer(3, GL_FLOAT, sizeof(RVertex), &cm.verts[0].x);
+                glTexCoordPointer(2, GL_FLOAT, sizeof(RVertex), &cm.verts[0].u);
+                glColorPointer(3, GL_FLOAT, sizeof(RVertex), &cm.verts[0].r);
+                glDrawArrays(GL_QUADS, 0, cm.count);
+                glEndList();
+            } else if (m->list) {
+                glDeleteLists(m->list, 1);
+                m->list = 0;
+            }
+#else
+            if (cm.count > 0) {
+                if (m->capacity < cm.count) {
+                    m->capacity = cm.count;
+                    m->verts = xrealloc(m->verts, (size_t)m->capacity * sizeof(RVertex));
+                }
+                memcpy(m->verts, cm.verts, (size_t)cm.count * sizeof(RVertex));
+            }
+#endif
+            m->built = true;
+            m->meshing = false;
+            r->last_rebuilds++;
+            r->total_rebuilds++;
+        } else if (m) {
+            m->meshing = false;
+        }
+        free(cm.verts);
+        drained++;
+    }
+
+    /* 2. Dispatch chunk meshing jobs */
     if (!r->all_built || all) {
         bool any_missing = false;
-        int orig_budget = budget;
-        /* Outward concentric rings: player's immediate chunks are remeshed first */
+        int submit_limit = all ? 999999 : 16;
+        int submitted = 0;
         for (int rad = 0; rad <= r->render_radius; rad++) {
-            if (!all && budget <= 0) {
+            if (!all && submitted >= submit_limit) {
                 any_missing = true;
                 break;
             }
@@ -1424,30 +1490,103 @@ static void sync_chunks(Renderer *r, World *w, Vec3 eye, int budget, bool all) {
                         continue;
                     }
                     ChunkMesh *m = mesh_get(r, cx, cz);
-                    if (c->dirty || !m->built) {
-                        build_chunk_mesh(r, w, c, m);
+                    if ((c->dirty || !m->built) && !m->meshing) {
+                        m->meshing = true;
                         c->dirty = false;
-                        r->last_rebuilds++;
-                        r->total_rebuilds++;
-                        if (!all) {
-                            budget--;
-                            if (budget <= 0) {
-                                any_missing = true;
-                                goto sync_done;
-                            }
+                        m->version = c->version;
+
+                        MeshTask *task = malloc(sizeof(MeshTask));
+                        task->c = c;
+                        task->nb_e  = world_find_chunk(w, cx + 1, cz, false);
+                        task->nb_w  = world_find_chunk(w, cx - 1, cz, false);
+                        task->nb_s  = world_find_chunk(w, cx, cz + 1, false);
+                        task->nb_n  = world_find_chunk(w, cx, cz - 1, false);
+                        task->nb_ne = world_find_chunk(w, cx + 1, cz - 1, false);
+                        task->nb_nw = world_find_chunk(w, cx - 1, cz - 1, false);
+                        task->nb_se = world_find_chunk(w, cx + 1, cz + 1, false);
+                        task->nb_sw = world_find_chunk(w, cx - 1, cz + 1, false);
+                        task->assets = r->assets;
+                        task->smooth_lighting = r->smooth_lighting;
+                        task->version = m->version;
+                        task->r = r;
+
+                        if (r->pool) {
+                            thread_pool_submit(r->pool, chunk_mesh_worker, task);
+                        } else {
+                            chunk_mesh_worker(task);
                         }
+                        submitted++;
+                        if (!all && submitted >= submit_limit) {
+                            any_missing = true;
+                            goto mesh_dispatch_done;
+                        }
+                    } else if (m->meshing) {
+                        any_missing = true;
                     }
                 }
             }
         }
-sync_done:;
-        if (!any_missing && budget == orig_budget) {
+mesh_dispatch_done:;
+        if (all && r->pool) {
+            thread_pool_wait_idle(r->pool);
+            while (1) {
+                CompletedMesh cm;
+                pthread_mutex_lock((pthread_mutex_t *)r->completed_mutex);
+                if (r->completed_count == 0) {
+                    pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+                    break;
+                }
+                cm = r->completed_meshes[--r->completed_count];
+                pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+
+                ChunkMesh *m = mesh_find(r, cm.cx, cm.cz);
+                if (m && m->version == cm.version) {
+                    m->min_y = cm.min_y;
+                    m->max_y = cm.max_y;
+                    m->count = cm.count;
+#if MCED_USE_GL
+                    if (cm.count > 0) {
+                        if (!m->list)
+                            m->list = glGenLists(1);
+                        glNewList(m->list, GL_COMPILE);
+                        glEnableClientState(GL_VERTEX_ARRAY);
+                        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                        glEnableClientState(GL_COLOR_ARRAY);
+                        glVertexPointer(3, GL_FLOAT, sizeof(RVertex), &cm.verts[0].x);
+                        glTexCoordPointer(2, GL_FLOAT, sizeof(RVertex), &cm.verts[0].u);
+                        glColorPointer(3, GL_FLOAT, sizeof(RVertex), &cm.verts[0].r);
+                        glDrawArrays(GL_QUADS, 0, cm.count);
+                        glEndList();
+                    } else if (m->list) {
+                        glDeleteLists(m->list, 1);
+                        m->list = 0;
+                    }
+#else
+                    if (cm.count > 0) {
+                        if (m->capacity < cm.count) {
+                            m->capacity = cm.count;
+                            m->verts = xrealloc(m->verts, (size_t)m->capacity * sizeof(RVertex));
+                        }
+                        memcpy(m->verts, cm.verts, (size_t)cm.count * sizeof(RVertex));
+                    }
+#endif
+                    m->built = true;
+                    m->meshing = false;
+                    r->last_rebuilds++;
+                    r->total_rebuilds++;
+                } else if (m) {
+                    m->meshing = false;
+                }
+                free(cm.verts);
+            }
+        }
+        if (!any_missing && submitted == 0 && r->completed_count == 0) {
             r->all_built = true;
             w->dirty = false;
         }
     }
 
-    /* Unload distant meshes outside render radius + 2 hysteresis */
+    /* 3. Unload distant meshes outside render radius + 2 hysteresis */
     bool pruned = false;
     for (int i = r->chunk_count - 1; i >= 0; i--) {
         ChunkMesh *m = &r->chunks[i];
@@ -1455,6 +1594,7 @@ sync_done:;
             free(m->verts);
             m->verts = NULL;
             m->built = false;
+            m->meshing = false;
 #if MCED_USE_GL
             if (m->list) {
                 glDeleteLists(m->list, 1);
@@ -1475,6 +1615,17 @@ void renderer_warmup(Renderer *r, World *w, Vec3 eye) {
 }
 
 void renderer_reset_chunks(Renderer *r) {
+    if (r->pool) {
+        thread_pool_wait_idle(r->pool);
+    }
+    if (r->completed_mutex) {
+        pthread_mutex_lock((pthread_mutex_t *)r->completed_mutex);
+        for (int i = 0; i < r->completed_count; i++) {
+            free(r->completed_meshes[i].verts);
+        }
+        r->completed_count = 0;
+        pthread_mutex_unlock((pthread_mutex_t *)r->completed_mutex);
+    }
     for (int i = 0; i < r->chunk_count; i++) {
         free(r->chunks[i].verts);
         r->chunks[i].verts = NULL;

@@ -20,6 +20,8 @@ typedef struct {
     uint8_t redstone_power[CHUNK_VOLUME];
     bool generated;
     bool dirty;
+    bool generating;
+    uint32_t version;
 } Chunk;
 
 typedef struct {
@@ -35,6 +37,8 @@ typedef struct {
     int16_t y;
     int32_t z;
 } LiquidCoord;
+
+struct ThreadPool;
 
 typedef struct {
     uint64_t seed;
@@ -53,10 +57,13 @@ typedef struct {
     LiquidCoord liquid_queue[MAX_LIQUID_TICKS];
     int liquid_queue_head;
     int liquid_queue_tail;
+    struct ThreadPool *pool;
+    void *chunk_mutex;
 } World;
 
 void world_init(World *w, uint64_t seed, int load_radius);
 void world_destroy(World *w);
+void world_set_thread_pool(World *w, struct ThreadPool *pool);
 
 Chunk *world_get_chunk(World *w, int cx, int cz, bool create);
 Chunk *world_find_chunk(World *w, int cx, int cz, bool create);

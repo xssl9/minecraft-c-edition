@@ -8,6 +8,7 @@
 #include "ui.h"
 #include "world.h"
 #include "entity.h"
+#include "thread_pool.h"
 
 #include <SDL.h>
 #include <ctype.h>
@@ -38,6 +39,7 @@ typedef struct {
     UI ui;
     Audio audio;
     EntityManager entities;
+    ThreadPool *pool;
 
     bool running;
     bool world_active;
@@ -587,6 +589,10 @@ static void start_world(App *a, bool new_world) {
         seed = a->seed_override;
 
     world_init(&a->world, seed, a->renderer.render_radius + 2);
+    if (a->pool) {
+        world_set_thread_pool(&a->world, a->pool);
+        renderer_set_thread_pool(&a->renderer, a->pool);
+    }
     if (load_ok) {
         FILE *f = fopen(a->save_path, "rb");
         if (f) {
@@ -2421,6 +2427,9 @@ static void init_sdl(App *a) {
 }
 
 static void shutdown_app(App *a) {
+    if (a->pool) {
+        thread_pool_wait_idle(a->pool);
+    }
     if (a->world_active) {
         save_world(a, true);
         world_destroy(&a->world);
@@ -2428,6 +2437,10 @@ static void shutdown_app(App *a) {
     }
     renderer_reset_chunks(&a->renderer);
     renderer_shutdown(&a->renderer);
+    if (a->pool) {
+        thread_pool_destroy(a->pool);
+        a->pool = NULL;
+    }
     audio_shutdown(&a->audio);
     assets_free(&a->assets);
 #if MCED_USE_GL
@@ -2577,6 +2590,13 @@ int main(int argc, char **argv) {
         die("could not initialize TinyGL");
     ui_init(&app.ui, app.internal_w, app.internal_h);
 #endif
+    app.pool = thread_pool_create(0);
+    if (app.pool) {
+        renderer_set_thread_pool(&app.renderer, app.pool);
+        world_set_thread_pool(&app.world, app.pool);
+        printf("Parallel execution enabled: thread pool initialized with %d worker threads\n",
+               thread_pool_thread_count(app.pool));
+    }
     derive_paths(&app);
     app.has_save = access(app.save_path, R_OK) == 0;
     settings_load(&app.settings, app.options_path);

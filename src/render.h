@@ -23,6 +23,16 @@ typedef struct {
 
 typedef struct ChunkMesh ChunkMesh;
 
+struct ThreadPool;
+
+typedef struct CompletedMesh {
+    int cx, cz;
+    uint32_t version;
+    RVertex *verts;
+    int count;
+    int min_y, max_y;
+} CompletedMesh;
+
 #define RENDER_MAX_PARTICLES 384
 
 typedef struct {
@@ -125,11 +135,18 @@ typedef struct Renderer {
 
     RenderParticle particles[RENDER_MAX_PARTICLES];
     int particle_count;
+
+    struct ThreadPool *pool;
+    CompletedMesh *completed_meshes;
+    int completed_count;
+    int completed_capacity;
+    void *completed_mutex;
 } Renderer;
 
 bool renderer_init(Renderer *r, const Assets *assets, int width, int height);
 void renderer_resize(Renderer *r, int width, int height);
 void renderer_shutdown(Renderer *r);
+void renderer_set_thread_pool(Renderer *r, struct ThreadPool *pool);
 
 void renderer_clear(Renderer *r);
 void renderer_sky(Renderer *r, float world_time, Vec3 eye, float yaw, float pitch);
