@@ -3,7 +3,6 @@ build/
 build-*/
 
 # imported Minecraft resources and screenshots (not redistributable)
-assets/
 screenshots/
 
 # local world and player state
