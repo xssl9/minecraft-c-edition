@@ -511,6 +511,27 @@ void renderer_sky(Renderer *r, float world_time, Vec3 eye, float yaw, float pitc
     (void)eye;
     glViewport(0, 0, r->width, r->height);
 
+    if (r->submerged_fluid == 1) {
+        /* Submerged in water: deep aquatic blue abyss */
+        r->fog_color[0] = 0.03f;
+        r->fog_color[1] = 0.12f;
+        r->fog_color[2] = 0.28f;
+        r->fog_color[3] = 1.0f;
+        glClearColor(0.02f, 0.08f, 0.22f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        return;
+    }
+    if (r->submerged_fluid == 2) {
+        /* Submerged in lava: thick fiery orange-red magma */
+        r->fog_color[0] = 0.65f;
+        r->fog_color[1] = 0.14f;
+        r->fog_color[2] = 0.01f;
+        r->fog_color[3] = 1.0f;
+        glClearColor(0.55f, 0.10f, 0.00f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        return;
+    }
+
     /* Day cycle: 1200 seconds = 20 minutes (vanilla Minecraft day) */
     /* 0s = 06:00 (sunrise), 300s = 12:00 (noon), 600s = 18:00 (sunset), 900s = 00:00 (midnight) */
     float cycle = fmodf(world_time, 1200.0f);
@@ -956,7 +977,7 @@ static void emit_flat_floor(MeshBuffer *mb, const Assets *assets, uint16_t tile,
 }
 
 static void emit_door(MeshBuffer *mb, const Assets *assets, uint8_t id, bool is_top,
-                      float x, float y, float z) {
+                      float x, float y, float z, float light) {
     bool open = (id == BLOCK_OAK_DOOR_OPEN || id == BLOCK_IRON_DOOR_OPEN);
     bool iron = (id == BLOCK_IRON_DOOR || id == BLOCK_IRON_DOOR_OPEN);
     const char *tex_name;
@@ -972,7 +993,9 @@ static void emit_door(MeshBuffer *mb, const Assets *assets, uint8_t id, bool is_
 
     float t = 0.1875f;
     RVertex a, b, c, d;
-    float sh = 0.85f;
+    float sh = 0.85f * light;
+    float edge_sh = 0.65f * light;
+    float top_sh = 1.0f * light;
 
     if (!open) {
         /* South face (front) */
@@ -990,24 +1013,24 @@ static void emit_door(MeshBuffer *mb, const Assets *assets, uint8_t id, bool is_
         mesh_buf_push(mb, a, b, c, d);
 
         /* West edge */
-        vert(&a, x, y + 1.0f, z, u0, v0, 0.65f, 1, 1, 1);
-        vert(&b, x, y, z, u0, v1, 0.65f, 1, 1, 1);
-        vert(&c, x, y, z + t, u1, v1, 0.65f, 1, 1, 1);
-        vert(&d, x, y + 1.0f, z + t, u1, v0, 0.65f, 1, 1, 1);
+        vert(&a, x, y + 1.0f, z, u0, v0, edge_sh, 1, 1, 1);
+        vert(&b, x, y, z, u0, v1, edge_sh, 1, 1, 1);
+        vert(&c, x, y, z + t, u1, v1, edge_sh, 1, 1, 1);
+        vert(&d, x, y + 1.0f, z + t, u1, v0, edge_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
 
         /* East edge */
-        vert(&a, x + 1.0f, y + 1.0f, z + t, u0, v0, 0.65f, 1, 1, 1);
-        vert(&b, x + 1.0f, y, z + t, u0, v1, 0.65f, 1, 1, 1);
-        vert(&c, x + 1.0f, y, z, u1, v1, 0.65f, 1, 1, 1);
-        vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, 0.65f, 1, 1, 1);
+        vert(&a, x + 1.0f, y + 1.0f, z + t, u0, v0, edge_sh, 1, 1, 1);
+        vert(&b, x + 1.0f, y, z + t, u0, v1, edge_sh, 1, 1, 1);
+        vert(&c, x + 1.0f, y, z, u1, v1, edge_sh, 1, 1, 1);
+        vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, edge_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
 
         /* Top edge */
-        vert(&a, x, y + 1.0f, z, u0, v0, 1.0f, 1, 1, 1);
-        vert(&b, x, y + 1.0f, z + t, u0, v1, 1.0f, 1, 1, 1);
-        vert(&c, x + 1.0f, y + 1.0f, z + t, u1, v1, 1.0f, 1, 1, 1);
-        vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, 1.0f, 1, 1, 1);
+        vert(&a, x, y + 1.0f, z, u0, v0, top_sh, 1, 1, 1);
+        vert(&b, x, y + 1.0f, z + t, u0, v1, top_sh, 1, 1, 1);
+        vert(&c, x + 1.0f, y + 1.0f, z + t, u1, v1, top_sh, 1, 1, 1);
+        vert(&d, x + 1.0f, y + 1.0f, z, u1, v0, top_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
     } else {
         /* Open door: rotated 90 degrees along X axis */
@@ -1026,55 +1049,55 @@ static void emit_door(MeshBuffer *mb, const Assets *assets, uint8_t id, bool is_
         mesh_buf_push(mb, a, b, c, d);
 
         /* North edge */
-        vert(&a, x + t, y + 1.0f, z, u0, v0, 0.65f, 1, 1, 1);
-        vert(&b, x + t, y, z, u0, v1, 0.65f, 1, 1, 1);
-        vert(&c, x, y, z, u1, v1, 0.65f, 1, 1, 1);
-        vert(&d, x, y + 1.0f, z, u1, v0, 0.65f, 1, 1, 1);
+        vert(&a, x + t, y + 1.0f, z, u0, v0, edge_sh, 1, 1, 1);
+        vert(&b, x + t, y, z, u0, v1, edge_sh, 1, 1, 1);
+        vert(&c, x, y, z, u1, v1, edge_sh, 1, 1, 1);
+        vert(&d, x, y + 1.0f, z, u1, v0, edge_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
 
         /* South edge */
-        vert(&a, x, y + 1.0f, z + 1.0f, u0, v0, 0.65f, 1, 1, 1);
-        vert(&b, x, y, z + 1.0f, u0, v1, 0.65f, 1, 1, 1);
-        vert(&c, x + t, y, z + 1.0f, u1, v1, 0.65f, 1, 1, 1);
-        vert(&d, x + t, y + 1.0f, z + 1.0f, u1, v0, 0.65f, 1, 1, 1);
+        vert(&a, x, y + 1.0f, z + 1.0f, u0, v0, edge_sh, 1, 1, 1);
+        vert(&b, x, y, z + 1.0f, u0, v1, edge_sh, 1, 1, 1);
+        vert(&c, x + t, y, z + 1.0f, u1, v1, edge_sh, 1, 1, 1);
+        vert(&d, x + t, y + 1.0f, z + 1.0f, u1, v0, edge_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
 
         /* Top edge */
-        vert(&a, x, y + 1.0f, z, u0, v0, 1.0f, 1, 1, 1);
-        vert(&b, x, y + 1.0f, z + 1.0f, u0, v1, 1.0f, 1, 1, 1);
-        vert(&c, x + t, y + 1.0f, z + 1.0f, u1, v1, 1.0f, 1, 1, 1);
-        vert(&d, x + t, y + 1.0f, z, u1, v0, 1.0f, 1, 1, 1);
+        vert(&a, x, y + 1.0f, z, u0, v0, top_sh, 1, 1, 1);
+        vert(&b, x, y + 1.0f, z + 1.0f, u0, v1, top_sh, 1, 1, 1);
+        vert(&c, x + t, y + 1.0f, z + 1.0f, u1, v1, top_sh, 1, 1, 1);
+        vert(&d, x + t, y + 1.0f, z, u1, v0, top_sh, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
     }
 }
 
 static void emit_cactus(MeshBuffer *mb, const Assets *assets, uint8_t id,
-                        float x, float y, float z, bool draw_top, bool draw_bottom) {
+                        float x, float y, float z, bool draw_top, bool draw_bottom, float light) {
     float u0, v0, u1, v1;
     RVertex a, b, c, d;
 
     /* Top face (full 1x1 at y + 1) */
     if (draw_top) {
         assets_tile_uv(assets, g_block_tiles[id][FACE_TOP], &u0, &v0, &u1, &v1);
-        vert(&a, x,        y + 1.0f, z,        u0, v0, 1.0f, 1, 1, 1);
-        vert(&b, x,        y + 1.0f, z + 1.0f, u0, v1, 1.0f, 1, 1, 1);
-        vert(&c, x + 1.0f, y + 1.0f, z + 1.0f, u1, v1, 1.0f, 1, 1, 1);
-        vert(&d, x + 1.0f, y + 1.0f, z,        u1, v0, 1.0f, 1, 1, 1);
+        vert(&a, x,        y + 1.0f, z,        u0, v0, 1.0f * light, 1, 1, 1);
+        vert(&b, x,        y + 1.0f, z + 1.0f, u0, v1, 1.0f * light, 1, 1, 1);
+        vert(&c, x + 1.0f, y + 1.0f, z + 1.0f, u1, v1, 1.0f * light, 1, 1, 1);
+        vert(&d, x + 1.0f, y + 1.0f, z,        u1, v0, 1.0f * light, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
     }
 
     /* Bottom face (full 1x1 at y) */
     if (draw_bottom) {
         assets_tile_uv(assets, g_block_tiles[id][FACE_BOTTOM], &u0, &v0, &u1, &v1);
-        vert(&a, x,        y, z + 1.0f, u0, v0, 0.5f, 1, 1, 1);
-        vert(&b, x,        y, z,        u0, v1, 0.5f, 1, 1, 1);
-        vert(&c, x + 1.0f, y, z,        u1, v1, 0.5f, 1, 1, 1);
-        vert(&d, x + 1.0f, y, z + 1.0f, u1, v0, 0.5f, 1, 1, 1);
+        vert(&a, x,        y, z + 1.0f, u0, v0, 0.5f * light, 1, 1, 1);
+        vert(&b, x,        y, z,        u0, v1, 0.5f * light, 1, 1, 1);
+        vert(&c, x + 1.0f, y, z,        u1, v1, 0.5f * light, 1, 1, 1);
+        vert(&d, x + 1.0f, y, z + 1.0f, u1, v0, 0.5f * light, 1, 1, 1);
         mesh_buf_push(mb, a, b, c, d);
     }
 
-    float sh_ns = 0.80f;
-    float sh_ew = 0.65f;
+    float sh_ns = 0.80f * light;
+    float sh_ew = 0.65f * light;
     const float inset = 0.0625f; // 1/16th of a block inset matching vanilla cactus.json
 
     /* North face (at z + inset, facing -Z) */
@@ -1186,6 +1209,47 @@ static inline bool is_solid_block8(const MeshTask *task, int lx, int y, int lz, 
     return block_is_opaque(b);
 }
 
+typedef struct {
+    int8_t lx, lz;
+    int16_t y;
+    uint8_t light;
+} ChunkLightEmitter;
+
+static inline float compute_light_level(const Chunk *c, const ChunkLightEmitter *emitters, int emitter_count,
+                                        int lx, int y, int lz, float user_brightness) {
+    /* 1. Sky light: 1.0 at or above surface heightmap, drops rapidly in enclosed caves */
+    float sky_light = 1.0f;
+    int hlx = lx < 0 ? 0 : (lx >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lx);
+    int hlz = lz < 0 ? 0 : (lz >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lz);
+    int surface_y = c->heightmap[hlx + hlz * CHUNK_SIZE];
+    if (y < surface_y) {
+        int depth = surface_y - y;
+        if (depth <= 1) sky_light = 0.70f;
+        else if (depth == 2) sky_light = 0.35f;
+        else sky_light = 0.0f; /* Pitch-black underground cave */
+    }
+
+    /* 2. Block light from torches, lava, glowing blocks */
+    float block_light = 0.0f;
+    for (int i = 0; i < emitter_count; i++) {
+        int d = abs((int)emitters[i].lx - lx) +
+                abs((int)emitters[i].y - y) +
+                abs((int)emitters[i].lz - lz);
+        if (d < (int)emitters[i].light) {
+            float bl = (float)(emitters[i].light - d) / 15.0f;
+            if (bl > block_light) {
+                block_light = bl;
+                if (block_light >= 0.95f) break;
+            }
+        }
+    }
+
+    float min_amb = 0.08f + 0.08f * user_brightness;
+    float l = fmaxf(sky_light, block_light);
+    if (l < min_amb) l = min_amb;
+    return l;
+}
+
 static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_min_y, int *out_max_y) {
     static const float shade[FACE_COUNT] = {1.00f, 0.50f, 0.80f, 0.80f, 0.65f, 0.65f};
     static const int fdx[FACE_COUNT] = {0, 0, 0, 0, 1, -1};
@@ -1219,6 +1283,24 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
     max_y += 16;
     if (max_y >= WORLD_HEIGHT) max_y = WORLD_HEIGHT - 1;
 
+    ChunkLightEmitter emitters[128];
+    int emitter_count = 0;
+    for (int elx = 0; elx < CHUNK_SIZE; elx++) {
+        for (int elz = 0; elz < CHUNK_SIZE; elz++) {
+            for (int ey = 0; ey <= max_y; ey++) {
+                uint8_t bid = c->blocks[chunk_index_local(elx, ey, elz)];
+                if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0) {
+                    if (emitter_count < 128) {
+                        emitters[emitter_count++] = (ChunkLightEmitter){
+                            (int8_t)elx, (int8_t)elz, (int16_t)ey, g_block_defs[bid].light
+                        };
+                    }
+                }
+            }
+        }
+    }
+    float user_br = task->r ? task->r->brightness : 0.5f;
+
     for (int lx = 0; lx < CHUNK_SIZE; lx++) {
         for (int lz = 0; lz < CHUNK_SIZE; lz++) {
             for (int y = 0; y <= max_y; y++) {
@@ -1226,6 +1308,9 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                 if (id == BLOCK_AIR || id >= BLOCK_COUNT)
                     continue;
                 const BlockDef *def = &g_block_defs[id];
+                float block_l = compute_light_level(c, emitters, emitter_count, lx, y, lz, user_br);
+                if (def->light > 0) block_l = 1.0f;
+
                 if (def->shape == SHAPE_TORCH) {
                     if (y < min_y) min_y = y;
                     if (y + 1 > max_y) max_y = y + 1;
@@ -1242,7 +1327,7 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                     float cb = (def->tint_mode != TINT_NONE) ? def->tint_b : 1.0f;
                     emit_cross(mb, assets, g_block_tiles[id][FACE_TOP],
                                (float)(c->cx * CHUNK_SIZE + lx), (float)y,
-                               (float)(c->cz * CHUNK_SIZE + lz), 1.0f, 1.0f, cr, cg, cb);
+                               (float)(c->cz * CHUNK_SIZE + lz), 1.0f, block_l, cr, cg, cb);
                     continue;
                 }
                 if (def->shape == SHAPE_FLAT_FLOOR) {
@@ -1257,7 +1342,7 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                     }
                     emit_flat_floor(mb, assets, g_block_tiles[id][FACE_TOP],
                                     (float)(c->cx * CHUNK_SIZE + lx), (float)y,
-                                    (float)(c->cz * CHUNK_SIZE + lz), 1.0f, r_val, g_val, b_val);
+                                    (float)(c->cz * CHUNK_SIZE + lz), block_l, r_val, g_val, b_val);
                     continue;
                 }
                 if (def->shape == SHAPE_DOOR) {
@@ -1266,7 +1351,7 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                     bool is_top = (y > 0 && g_block_defs[c->blocks[chunk_index_local(lx, y - 1, lz)]].shape == SHAPE_DOOR);
                     emit_door(mb, assets, id, is_top,
                               (float)(c->cx * CHUNK_SIZE + lx), (float)y,
-                              (float)(c->cz * CHUNK_SIZE + lz));
+                              (float)(c->cz * CHUNK_SIZE + lz), block_l);
                     continue;
                 }
                 if (def->shape == SHAPE_CACTUS) {
@@ -1277,7 +1362,7 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                     emit_cactus(mb, assets, id,
                                 (float)(c->cx * CHUNK_SIZE + lx), (float)y,
                                 (float)(c->cz * CHUNK_SIZE + lz),
-                                nb_up != BLOCK_CACTUS, nb_dn != BLOCK_CACTUS);
+                                nb_up != BLOCK_CACTUS, nb_dn != BLOCK_CACTUS, block_l);
                     continue;
                 }
                 float h = def->liquid ? 0.875f : (def->shape == SHAPE_SLAB ? 0.5f : 1.0f);
@@ -1292,7 +1377,10 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                         tg2 = def->tint_g;
                         tb2 = def->tint_b;
                     }
-                    float sh = shade[f];
+                    int nx = lx + fdx[f], ny = y + fdy[f], nz = lz + fdz[f];
+                    float face_l = compute_light_level(c, emitters, emitter_count, nx, ny, nz, user_br);
+                    if (def->light > 0) face_l = 1.0f;
+                    float sh = shade[f] * face_l;
                     if (def->light > 0)
                         sh = 1.0f;
                     if (y < min_y)
@@ -1719,8 +1807,21 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
 #if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
-    /* Hardware Linear Distance Fog blending seamlessly with sky horizon */
-    if (r->fog_enabled) {
+    /* Fog handling for underwater, under-lava, and atmosphere */
+    if (r->submerged_fluid == 1) {
+        /* Dense murky underwater fog */
+        glEnable(GL_FOG);
+        glFogi(GL_FOG_MODE, GL_EXP2);
+        glFogf(GL_FOG_DENSITY, 0.08f);
+        glFogfv(GL_FOG_COLOR, r->fog_color);
+    } else if (r->submerged_fluid == 2) {
+        /* Extreme thick fiery lava fog (visible only ~2 blocks) */
+        glEnable(GL_FOG);
+        glFogi(GL_FOG_MODE, GL_LINEAR);
+        glFogfv(GL_FOG_COLOR, r->fog_color);
+        glFogf(GL_FOG_START, 0.1f);
+        glFogf(GL_FOG_END, 2.4f);
+    } else if (r->fog_enabled) {
         float fog_dist = (float)(r->render_radius * CHUNK_SIZE);
         float fog_start = fog_dist * 0.70f;
         float fog_end = fog_dist * 0.98f;
@@ -1732,6 +1833,41 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
     } else {
         glDisable(GL_FOG);
     }
+
+    /* Ambient scene lighting based on day/night cycle and submerged state */
+    glEnable(GL_LIGHTING);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+    float day_cycle = fmodf(r->world_time, 1200.0f);
+    if (day_cycle < 0.0f) day_cycle += 1200.0f;
+    float c_angle = ((day_cycle - 300.0f) / 1200.0f) * 2.0f * (float)M_PI;
+    float s_elev = cosf(c_angle);
+
+    GLfloat amb[4];
+    if (r->submerged_fluid == 1) {
+        /* Aquatic tint */
+        amb[0] = 0.35f; amb[1] = 0.55f; amb[2] = 0.80f; amb[3] = 1.0f;
+    } else if (r->submerged_fluid == 2) {
+        /* Lava intense fiery glow */
+        amb[0] = 1.00f; amb[1] = 0.40f; amb[2] = 0.10f; amb[3] = 1.0f;
+    } else if (s_elev > 0.20f) {
+        /* Daytime full brightness */
+        amb[0] = 1.0f; amb[1] = 1.0f; amb[2] = 1.0f; amb[3] = 1.0f;
+    } else if (s_elev > -0.20f) {
+        /* Sunrise / Sunset */
+        float t = (s_elev + 0.20f) / 0.40f;
+        float sunset_w = 1.0f - fabsf(t - 0.5f) * 2.0f;
+        if (sunset_w < 0.0f) sunset_w = 0.0f;
+        amb[0] = 0.25f + 0.75f * t + 0.20f * sunset_w;
+        amb[1] = 0.28f + 0.72f * t + 0.05f * sunset_w;
+        amb[2] = 0.38f + 0.62f * t;
+        amb[3] = 1.0f;
+    } else {
+        /* Nighttime dark moonlit atmosphere */
+        amb[0] = 0.25f; amb[1] = 0.28f; amb[2] = 0.40f; amb[3] = 1.0f;
+    }
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, amb);
 #endif
 
     r->last_quads = 0;
@@ -1779,6 +1915,7 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
     }
 
 #if MCED_USE_GL
+    glDisable(GL_LIGHTING);
     glDisable(GL_ALPHA_TEST);
     glDisable(GL_FOG);
 #endif
@@ -2979,7 +3116,7 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
     glBindTexture(GL_TEXTURE_2D, r->atlas_tex);
 
     const BlockDef *def = &g_block_defs[block];
-    bool is_flat = def->is_item || !def->solid || def->shape == SHAPE_CROSS ||
+    bool is_flat = def->is_item || def->shape == SHAPE_CROSS ||
                    def->shape == SHAPE_TORCH || def->shape == SHAPE_FLAT_FLOOR ||
                    def->shape == SHAPE_DOOR;
     float u0, v0, u1, v1;
@@ -3009,54 +3146,66 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
         return;
     }
 
-    glDisable(GL_BLEND);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 #if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
 #endif
 
-    float px = size / 16.0f;
     float cx = x + size * 0.5f;
-    float ty = y + size * 0.10f;
-    float my = y + size * 0.38f;
-    float by = y + size * 0.78f;
+    float w  = size * 0.42f;
+    float h  = (def->shape == SHAPE_SLAB) ? (size * 0.20f) : (size * 0.40f);
+    float cy = (def->shape == SHAPE_SLAB) ? (y + size * 0.62f) : (y + size * 0.52f);
+    float top_dy = size * 0.22f;
 
-    float top_r = 1, top_g = 1, top_b = 1;
+    /* Top face */
+    float top_r = 1.0f, top_g = 1.0f, top_b = 1.0f;
     if (def->tint_mode == TINT_ALL || def->tint_mode == TINT_TOP) {
         top_r = def->tint_r; top_g = def->tint_g; top_b = def->tint_b;
     }
     assets_tile_uv(r->assets, g_block_tiles[block][FACE_TOP], &u0, &v0, &u1, &v1);
-    glColor3f(top_r, top_g, top_b);
+    glColor4f(top_r, top_g, top_b, 1.0f);
     glBegin(GL_QUADS);
-    glTexCoord2f(u0, v0); glVertex2f(cx, ty);
-    glTexCoord2f(u0, v1); glVertex2f(cx + size * 0.5f, my);
-    glTexCoord2f(u1, v1); glVertex2f(cx, by);
-    glTexCoord2f(u1, v0); glVertex2f(cx - size * 0.5f, my);
+    glTexCoord2f(u0, v0); glVertex2f(cx, cy - top_dy * 2.0f);
+    glTexCoord2f(u1, v0); glVertex2f(cx + w, cy - top_dy);
+    glTexCoord2f(u1, v1); glVertex2f(cx, cy);
+    glTexCoord2f(u0, v1); glVertex2f(cx - w, cy - top_dy);
     glEnd();
 
+    /* Left face (South / facing front-left) */
+    float left_r = 0.80f, left_g = 0.80f, left_b = 0.80f;
+    if (def->tint_mode == TINT_ALL) {
+        left_r *= def->tint_r; left_g *= def->tint_g; left_b *= def->tint_b;
+    }
     assets_tile_uv(r->assets, g_block_tiles[block][FACE_SOUTH], &u0, &v0, &u1, &v1);
-    glColor3f(0.72f, 0.72f, 0.72f);
+    glColor4f(left_r, left_g, left_b, 1.0f);
     glBegin(GL_QUADS);
-    glTexCoord2f(u0, v0); glVertex2f(cx - size * 0.5f, my);
-    glTexCoord2f(u0, v1); glVertex2f(cx - size * 0.5f, by - size * 0.12f);
-    glTexCoord2f(u1, v1); glVertex2f(cx, by);
-    glTexCoord2f(u1, v0); glVertex2f(cx, my + size * 0.02f);
+    glTexCoord2f(u0, v0); glVertex2f(cx - w, cy - top_dy);
+    glTexCoord2f(u1, v0); glVertex2f(cx, cy);
+    glTexCoord2f(u1, v1); glVertex2f(cx, cy + h);
+    glTexCoord2f(u0, v1); glVertex2f(cx - w, cy - top_dy + h);
     glEnd();
 
+    /* Right face (East / facing front-right) */
+    float right_r = 0.60f, right_g = 0.60f, right_b = 0.60f;
+    if (def->tint_mode == TINT_ALL) {
+        right_r *= def->tint_r; right_g *= def->tint_g; right_b *= def->tint_b;
+    }
     assets_tile_uv(r->assets, g_block_tiles[block][FACE_EAST], &u0, &v0, &u1, &v1);
-    glColor3f(0.47f, 0.47f, 0.47f);
+    glColor4f(right_r, right_g, right_b, 1.0f);
     glBegin(GL_QUADS);
-    glTexCoord2f(u0, v0); glVertex2f(cx, my);
-    glTexCoord2f(u0, v1); glVertex2f(cx, by);
-    glTexCoord2f(u1, v1); glVertex2f(cx + size * 0.5f, by - size * 0.12f);
-    glTexCoord2f(u1, v0); glVertex2f(cx + size * 0.5f, my);
+    glTexCoord2f(u0, v0); glVertex2f(cx, cy);
+    glTexCoord2f(u1, v0); glVertex2f(cx + w, cy - top_dy);
+    glTexCoord2f(u1, v1); glVertex2f(cx + w, cy - top_dy + h);
+    glTexCoord2f(u0, v1); glVertex2f(cx, cy + h);
     glEnd();
 
 #if MCED_USE_GL
     glDisable(GL_ALPHA_TEST);
 #endif
+    glDisable(GL_BLEND);
     glDisable(GL_TEXTURE_2D);
-    (void)px;
 }
 
 /* ------------------------------------------------------------------ */

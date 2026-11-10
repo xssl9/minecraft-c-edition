@@ -1749,6 +1749,59 @@ static void draw_chest(UI *ui, Renderer *r, Player *p) {
     }
 }
 
+static void draw_fluid_overlays(Renderer *r, UI *ui, Player *p) {
+    if (r->submerged_fluid == 1) {
+        /* Underwater aquatic looking-glass overlay */
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0.04f, 0.22f, 0.52f, 0.35f);
+        glBegin(GL_QUADS);
+        glVertex2f(0, 0);
+        glVertex2f((float)ui->width, 0);
+        glVertex2f((float)ui->width, (float)ui->height);
+        glVertex2f(0, (float)ui->height);
+        glEnd();
+
+        /* Vignette border */
+        glColor4f(0.01f, 0.08f, 0.25f, 0.45f);
+        glLineWidth(8.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(0, 0);
+        glVertex2f((float)ui->width, 0);
+        glVertex2f((float)ui->width, (float)ui->height);
+        glVertex2f(0, (float)ui->height);
+        glEnd();
+        glLineWidth(1.0f);
+        glDisable(GL_BLEND);
+    } else if (r->submerged_fluid == 2 || (p && p->in_lava)) {
+        /* Under-lava fiery magma screen overlay with pulsing fire */
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        float pulse = 0.55f + 0.15f * sinf(ui->anim * 6.0f);
+        glColor4f(0.95f, 0.28f, 0.02f, pulse);
+        glBegin(GL_QUADS);
+        glVertex2f(0, 0);
+        glVertex2f((float)ui->width, 0);
+        glVertex2f((float)ui->width, (float)ui->height);
+        glVertex2f(0, (float)ui->height);
+        glEnd();
+
+        /* Fiery border effect */
+        glColor4f(1.0f, 0.55f, 0.05f, 0.70f);
+        glLineWidth(12.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(0, 0);
+        glVertex2f((float)ui->width, 0);
+        glVertex2f((float)ui->width, (float)ui->height);
+        glVertex2f(0, (float)ui->height);
+        glEnd();
+        glLineWidth(1.0f);
+        glDisable(GL_BLEND);
+    }
+}
+
 void ui_draw(Renderer *r, UI *ui, Player *p, World *w, HUDInfo *info) {
     renderer_ui_begin(r);
     ui->anim += 0.016f;
@@ -1811,6 +1864,7 @@ void ui_draw(Renderer *r, UI *ui, Player *p, World *w, HUDInfo *info) {
     if (ui->screen != UI_SCREEN_NONE)
         return;
 
+    draw_fluid_overlays(r, ui, p);
     draw_crosshair(r, ui);
     if (p) draw_hud(r, ui, p);
 

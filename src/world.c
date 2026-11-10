@@ -184,6 +184,9 @@ void world_set_block(World *w, int x, int y, int z, uint8_t block, bool record) 
     if (c->blocks[idx] == block)
         return;
     c->blocks[idx] = block;
+    if (block != BLOCK_WATER && block != BLOCK_LAVA) {
+        c->fluid_dist[idx] = 0;
+    }
     chunk_recompute_height(c, lx, lz);
     world_mark_neighbors(w, c, lx, lz);
 
@@ -1656,6 +1659,32 @@ update_done:;
     world_tick_liquids(w);
 }
 
+uint8_t world_get_fluid_dist(World *w, int x, int y, int z) {
+    if (y < 0 || y >= WORLD_HEIGHT)
+        return 0;
+    int cx = floor_div16(x);
+    int cz = floor_div16(z);
+    Chunk *c = world_find_chunk(w, cx, cz, false);
+    if (!c || !c->generated)
+        return 0;
+    int lx = x - cx * CHUNK_SIZE;
+    int lz = z - cz * CHUNK_SIZE;
+    return c->fluid_dist[chunk_index_local(lx, y, lz)];
+}
+
+void world_set_fluid_dist(World *w, int x, int y, int z, uint8_t dist) {
+    if (y < 0 || y >= WORLD_HEIGHT)
+        return;
+    int cx = floor_div16(x);
+    int cz = floor_div16(z);
+    Chunk *c = world_get_chunk(w, cx, cz, true);
+    if (!c || !c->generated)
+        return;
+    int lx = x - cx * CHUNK_SIZE;
+    int lz = z - cz * CHUNK_SIZE;
+    c->fluid_dist[chunk_index_local(lx, y, lz)] = dist;
+}
+
 void world_schedule_liquid_tick(World *w, int x, int y, int z) {
     if (y < 0 || y >= WORLD_HEIGHT)
         return;
@@ -1667,9 +1696,11 @@ void world_schedule_liquid_tick(World *w, int x, int y, int z) {
 }
 
 void world_tick_liquids(World *w) {
-    int budget = 64;
+    int budget = 96;
     static const int hdx[4] = {1, -1, 0, 0};
     static const int hdz[4] = {0, 0, 1, -1};
+    static int lava_delay = 0;
+    bool tick_lava = (++lava_delay % 3 == 0);
 
     while (w->liquid_queue_head != w->liquid_queue_tail && budget-- > 0) {
         LiquidCoord coord = w->liquid_queue[w->liquid_queue_head];
@@ -1682,19 +1713,24 @@ void world_tick_liquids(World *w) {
             continue;
 
         uint8_t cur = world_get_block(w, x, y, z);
+        uint8_t cur_dist = world_get_fluid_dist(w, x, y, z);
 
-        /* 1. Infinite water source regeneration (Air block with >= 2 water neighbors and solid bottom) */
+        /* 1. Infinite water source regeneration (Air block with >= 2 water source neighbors and solid floor) */
         if (cur == BLOCK_AIR) {
             uint8_t under = (y > 0) ? world_get_block(w, x, y - 1, z) : BLOCK_BEDROCK;
-            if (under != BLOCK_AIR) {
+            if (under != BLOCK_AIR && under != BLOCK_WATER) {
                 int water_sources = 0;
                 for (int i = 0; i < 4; i++) {
-                    if (world_get_block(w, x + hdx[i], y, z + hdz[i]) == BLOCK_WATER)
+                    if (world_get_block(w, x + hdx[i], y, z + hdz[i]) == BLOCK_WATER &&
+                        world_get_fluid_dist(w, x + hdx[i], y, z + hdz[i]) == 0) {
                         water_sources++;
+                    }
                 }
                 if (water_sources >= 2) {
                     world_set_block(w, x, y, z, BLOCK_WATER, true);
+                    world_set_fluid_dist(w, x, y, z, 0);
                     cur = BLOCK_WATER;
+                    cur_dist = 0;
                     for (int i = 0; i < 4; i++)
                         world_schedule_liquid_tick(w, x + hdx[i], y, z + hdz[i]);
                     world_schedule_liquid_tick(w, x, y - 1, z);
@@ -1702,59 +1738,131 @@ void world_tick_liquids(World *w) {
             }
         }
 
-        /* 2. Water flowing downwards and spreading */
+        /* 2. Water drying up when disconnected from upstream source */
+        if (cur == BLOCK_WATER && cur_dist > 0) {
+            bool has_upstream = false;
+            if (y < WORLD_HEIGHT - 1 && world_get_block(w, x, y + 1, z) == BLOCK_WATER) {
+                has_upstream = true;
+            } else {
+                for (int i = 0; i < 4; i++) {
+                    int nx = x + hdx[i], nz = z + hdz[i];
+                    if (world_get_block(w, nx, y, nz) == BLOCK_WATER &&
+                        world_get_fluid_dist(w, nx, y, nz) < cur_dist) {
+                        has_upstream = true;
+                        break;
+                    }
+                }
+            }
+            if (!has_upstream) {
+                world_set_block(w, x, y, z, BLOCK_AIR, true);
+                world_set_fluid_dist(w, x, y, z, 0);
+                for (int i = 0; i < 4; i++)
+                    world_schedule_liquid_tick(w, x + hdx[i], y, z + hdz[i]);
+                if (y > 0) world_schedule_liquid_tick(w, x, y - 1, z);
+                continue;
+            }
+        }
+
+        /* 3. Lava drying up when disconnected */
+        if (cur == BLOCK_LAVA && cur_dist > 0) {
+            bool has_upstream = false;
+            if (y < WORLD_HEIGHT - 1 && world_get_block(w, x, y + 1, z) == BLOCK_LAVA) {
+                has_upstream = true;
+            } else {
+                for (int i = 0; i < 4; i++) {
+                    int nx = x + hdx[i], nz = z + hdz[i];
+                    if (world_get_block(w, nx, y, nz) == BLOCK_LAVA &&
+                        world_get_fluid_dist(w, nx, y, nz) < cur_dist) {
+                        has_upstream = true;
+                        break;
+                    }
+                }
+            }
+            if (!has_upstream) {
+                world_set_block(w, x, y, z, BLOCK_AIR, true);
+                world_set_fluid_dist(w, x, y, z, 0);
+                for (int i = 0; i < 4; i++)
+                    world_schedule_liquid_tick(w, x + hdx[i], y, z + hdz[i]);
+                if (y > 0) world_schedule_liquid_tick(w, x, y - 1, z);
+                continue;
+            }
+        }
+
+        /* 4. Water flowing downwards and spreading */
         if (cur == BLOCK_WATER) {
             if (y > 0) {
                 uint8_t below = world_get_block(w, x, y - 1, z);
                 if (below == BLOCK_AIR) {
                     world_set_block(w, x, y - 1, z, BLOCK_WATER, true);
+                    world_set_fluid_dist(w, x, y - 1, z, 1);
                     world_schedule_liquid_tick(w, x, y - 1, z);
                     continue;
                 } else if (below == BLOCK_LAVA) {
-                    world_set_block(w, x, y - 1, z, BLOCK_OBSIDIAN, true);
+                    uint8_t ldist = world_get_fluid_dist(w, x, y - 1, z);
+                    world_set_block(w, x, y - 1, z, (ldist == 0) ? BLOCK_OBSIDIAN : BLOCK_COBBLESTONE, true);
+                    world_set_fluid_dist(w, x, y - 1, z, 0);
                     continue;
                 }
             }
-            uint8_t under = (y > 0) ? world_get_block(w, x, y - 1, z) : BLOCK_BEDROCK;
-            if (under != BLOCK_AIR) {
+            /* Horizontal water spread (max 7 blocks from source) */
+            if (cur_dist < 7) {
                 for (int i = 0; i < 4; i++) {
                     int nx = x + hdx[i];
                     int nz = z + hdz[i];
                     uint8_t nb = world_get_block(w, nx, y, nz);
                     if (nb == BLOCK_LAVA) {
-                        world_set_block(w, nx, y, nz, BLOCK_COBBLESTONE, true);
+                        uint8_t ldist = world_get_fluid_dist(w, nx, y, nz);
+                        world_set_block(w, nx, y, nz, (ldist == 0) ? BLOCK_OBSIDIAN : BLOCK_COBBLESTONE, true);
+                        world_set_fluid_dist(w, nx, y, nz, 0);
                     } else if (nb == BLOCK_AIR) {
                         world_set_block(w, nx, y, nz, BLOCK_WATER, true);
+                        world_set_fluid_dist(w, nx, y, nz, cur_dist + 1);
                         world_schedule_liquid_tick(w, nx, y, nz);
+                    } else if (nb == BLOCK_WATER) {
+                        uint8_t ndist = world_get_fluid_dist(w, nx, y, nz);
+                        if (ndist > cur_dist + 1) {
+                            world_set_fluid_dist(w, nx, y, nz, cur_dist + 1);
+                            world_schedule_liquid_tick(w, nx, y, nz);
+                        }
                     }
                 }
             }
         }
 
-        /* 3. Lava flowing downwards and spreading */
-        else if (cur == BLOCK_LAVA) {
+        /* 5. Lava flowing downwards and spreading */
+        else if (cur == BLOCK_LAVA && tick_lava) {
             if (y > 0) {
                 uint8_t below = world_get_block(w, x, y - 1, z);
                 if (below == BLOCK_AIR) {
                     world_set_block(w, x, y - 1, z, BLOCK_LAVA, true);
+                    world_set_fluid_dist(w, x, y - 1, z, 1);
                     world_schedule_liquid_tick(w, x, y - 1, z);
                     continue;
                 } else if (below == BLOCK_WATER) {
                     world_set_block(w, x, y - 1, z, BLOCK_STONE, true);
+                    world_set_fluid_dist(w, x, y - 1, z, 0);
                     continue;
                 }
             }
-            uint8_t under = (y > 0) ? world_get_block(w, x, y - 1, z) : BLOCK_BEDROCK;
-            if (under != BLOCK_AIR) {
+            /* Horizontal lava spread (max 3 blocks from source in overworld) */
+            if (cur_dist < 3) {
                 for (int i = 0; i < 4; i++) {
                     int nx = x + hdx[i];
                     int nz = z + hdz[i];
                     uint8_t nb = world_get_block(w, nx, y, nz);
                     if (nb == BLOCK_WATER) {
                         world_set_block(w, nx, y, nz, BLOCK_COBBLESTONE, true);
+                        world_set_fluid_dist(w, nx, y, nz, 0);
                     } else if (nb == BLOCK_AIR) {
                         world_set_block(w, nx, y, nz, BLOCK_LAVA, true);
+                        world_set_fluid_dist(w, nx, y, nz, cur_dist + 1);
                         world_schedule_liquid_tick(w, nx, y, nz);
+                    } else if (nb == BLOCK_LAVA) {
+                        uint8_t ndist = world_get_fluid_dist(w, nx, y, nz);
+                        if (ndist > cur_dist + 1) {
+                            world_set_fluid_dist(w, nx, y, nz, cur_dist + 1);
+                            world_schedule_liquid_tick(w, nx, y, nz);
+                        }
                     }
                 }
             }

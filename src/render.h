@@ -125,6 +125,8 @@ typedef struct Renderer {
     int scratch_verts_capacity;
 
     float fog_color[4];
+    int submerged_fluid; /* 0 = air, 1 = water, 2 = lava */
+    float world_time;
 
     int last_quads;
     int last_chunks;

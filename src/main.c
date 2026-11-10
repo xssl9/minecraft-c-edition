@@ -551,6 +551,71 @@ static void setup_scene(App *a, const char *scene) {
         a->player.yaw = 180.0f;
         a->player.pitch = -10.0f;
         a->player.hotbar[a->player.selected] = ITEM_MACE;
+    } else if (!strcmp(scene, "underwater")) {
+        for (int dx = -5; dx <= 5; dx++) {
+            for (int dz = -5; dz <= 5; dz++) {
+                world_set_block(&a->world, sx + dx, sy - 1, sz + dz, BLOCK_SAND, false);
+                for (int dy = 0; dy <= 5; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_WATER, false);
+                }
+            }
+        }
+        world_set_block(&a->world, sx, sy, sz + 3, BLOCK_SEAGRASS, false);
+        world_set_block(&a->world, sx - 1, sy, sz + 2, BLOCK_KELP, false);
+        world_set_block(&a->world, sx - 1, sy + 1, sz + 2, BLOCK_KELP, false);
+        world_set_block(&a->world, sx + 1, sy, sz + 3, BLOCK_TUBE_CORAL, false);
+        a->player.pos = vec3((float)sx, (float)sy + 1.0f, (float)sz);
+        a->player.yaw = 0.0f;
+        a->player.pitch = 0.0f;
+    } else if (!strcmp(scene, "under_lava")) {
+        for (int dx = -5; dx <= 5; dx++) {
+            for (int dz = -5; dz <= 5; dz++) {
+                world_set_block(&a->world, sx + dx, sy - 1, sz + dz, BLOCK_NETHERRACK, false);
+                for (int dy = 0; dy <= 5; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_LAVA, false);
+                }
+            }
+        }
+        a->player.pos = vec3((float)sx, (float)sy + 1.0f, (float)sz);
+        a->player.yaw = 0.0f;
+        a->player.pitch = 0.0f;
+    } else if (!strcmp(scene, "cave_darkness")) {
+        for (int dx = -6; dx <= 6; dx++) {
+            for (int dz = -6; dz <= 6; dz++) {
+                for (int dy = -1; dy <= 6; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_DEEPSLATE, false);
+                }
+            }
+        }
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int dy = 0; dy <= 4; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_AIR, false);
+                }
+            }
+        }
+        a->player.pos = vec3((float)sx, (float)sy + 0.5f, (float)sz);
+        a->player.yaw = 0.0f;
+        a->player.pitch = 0.0f;
+    } else if (!strcmp(scene, "cave_torch")) {
+        for (int dx = -6; dx <= 6; dx++) {
+            for (int dz = -6; dz <= 6; dz++) {
+                for (int dy = -1; dy <= 6; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_DEEPSLATE, false);
+                }
+            }
+        }
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int dy = 0; dy <= 4; dy++) {
+                    world_set_block(&a->world, sx + dx, sy + dy, sz + dz, BLOCK_AIR, false);
+                }
+            }
+        }
+        world_set_block(&a->world, sx, sy + 1, sz + 3, BLOCK_TORCH, false);
+        a->player.pos = vec3((float)sx, (float)sy + 0.5f, (float)sz);
+        a->player.yaw = 0.0f;
+        a->player.pitch = 0.0f;
     }
     if (a->has_yaw) a->player.yaw = a->forced_yaw;
     if (a->has_pitch) a->player.pitch = a->forced_pitch;
@@ -2273,6 +2338,15 @@ static void render_frame(App *a) {
             if (speed > 0.5f)
                 eye.y += sinf(a->player.bob * 2.0f) * 0.035f;
         }
+        uint8_t eye_b = world_get_block(&a->world, (int)floorf(eye.x), (int)floorf(eye.y), (int)floorf(eye.z));
+        if (eye_b == BLOCK_WATER || block_is_submerged_flora(eye_b)) {
+            a->renderer.submerged_fluid = 1;
+        } else if (eye_b == BLOCK_LAVA) {
+            a->renderer.submerged_fluid = 2;
+        } else {
+            a->renderer.submerged_fluid = 0;
+        }
+        a->renderer.world_time = a->world_time;
         renderer_sky(&a->renderer, a->world_time, eye, a->player.yaw, a->player.pitch);
         renderer_world(&a->renderer, &a->world, eye,
                        a->player.yaw, a->player.pitch, 32);

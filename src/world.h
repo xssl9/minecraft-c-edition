@@ -18,6 +18,7 @@ typedef struct {
     uint8_t blocks[CHUNK_VOLUME];
     uint16_t heightmap[CHUNK_AREA];
     uint8_t redstone_power[CHUNK_VOLUME];
+    uint8_t fluid_dist[CHUNK_VOLUME];
     bool generated;
     bool dirty;
     bool generating;
@@ -74,6 +75,8 @@ void world_set_block_raw(World *w, int x, int y, int z, uint8_t block);
 
 void world_schedule_liquid_tick(World *w, int x, int y, int z);
 void world_tick_liquids(World *w);
+uint8_t world_get_fluid_dist(World *w, int x, int y, int z);
+void world_set_fluid_dist(World *w, int x, int y, int z, uint8_t dist);
 
 uint8_t world_get_power(World *w, int x, int y, int z);
 void world_set_power(World *w, int x, int y, int z, uint8_t power);
