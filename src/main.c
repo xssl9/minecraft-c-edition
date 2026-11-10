@@ -2577,7 +2577,7 @@ int main(int argc, char **argv) {
 
     init_sdl(&app);
     if (!assets_load(&app.assets, argv[0])) {
-        fprintf(stderr, "run: python3 tools/extract_assets.py\n");
+        fprintf(stderr, "could not find assets in ./assets or next to binary\n");
         return 1;
     }
     blocks_init(&app.assets);

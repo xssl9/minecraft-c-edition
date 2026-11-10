@@ -1,12 +1,12 @@
 Minecraft C Edition
 
-A small Minecraft-like voxel sandbox written in C11. It uses SDL2 for windowing, OpenGL for rendering with an optional TinyGL software fallback, and imports textures and sounds from a local Minecraft 26.3 installation.
+A small Minecraft-like voxel sandbox written in C11. It uses SDL2 for windowing, OpenGL for rendering with an optional TinyGL software fallback, and includes textures and sounds directly in the repository without requiring a local Minecraft installation.
 
 The game generates an endless voxel world with biomes, caves, ores, trees, water and lava. It supports creative and survival modes, mining and placing blocks, a hotbar and inventory, crafting, hunger, health, armor, TNT, a day and night cycle, chat commands, and local saves. It is not a complete Minecraft implementation.
 
 Dependencies
 
-A C11 compiler, CMake 3.16 or newer, SDL2 development files, OpenGL development files, and optionally libvorbisfile, libvorbis and libogg for sound.
+A C11 compiler, CMake 3.16 or newer, SDL2 development files, OpenGL development files, and optionally libvorbisfile, libvorbis and libogg for sound. No Minecraft installation is required.
 
 Building
 
@@ -38,4 +38,4 @@ World data is stored in saves/world.mced and player data in saves/player.dat. Th
 
 Legal
 
-Minecraft assets are the property of Mojang Studios and Microsoft. This project imports them from a locally installed copy for personal use only and does not include or redistribute any Mojang assets. Do not redistribute the assets directory. This project is not affiliated with or endorsed by Mojang or Microsoft.
+Minecraft assets are the property of Mojang Studios and Microsoft. This project is not affiliated with or endorsed by Mojang or Microsoft.

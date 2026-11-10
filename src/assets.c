@@ -65,7 +65,6 @@ static bool make_asset_root(char *out, size_t out_size, const char *hint) {
     snprintf(candidates[n++], sizeof(candidates[0]), "../assets");
     snprintf(candidates[n++], sizeof(candidates[0]), "../../assets");
     snprintf(candidates[n++], sizeof(candidates[0]), "../../../assets");
-    snprintf(candidates[n++], sizeof(candidates[0]), "/home/tux/minecraft-c-edition/assets");
 
     for (int i = 0; i < n; i++) {
         if (readable_dir(candidates[i])) {
@@ -111,7 +110,7 @@ bool assets_load(Assets *a, const char *hint) {
     a->atlas_rgb = read_file(path, &n);
     if (!a->atlas_rgba && (!a->atlas_rgb || n != (size_t)(MCED_ATLAS_SIZE * MCED_ATLAS_SIZE * 3))) {
         fprintf(stderr, "missing/invalid %s\n", path);
-        fprintf(stderr, "run: python3 tools/extract_assets.py\n");
+        fprintf(stderr, "assets directory is missing or incomplete (expected ./assets)\n");
         return false;
     }
 
