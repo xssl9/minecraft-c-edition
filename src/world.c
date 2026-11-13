@@ -160,14 +160,12 @@ static void chunk_recompute_height(Chunk *c, int lx, int lz) {
 
 static void world_mark_neighbors(World *w, Chunk *c, int lx, int lz) {
     c->dirty = true;
-    if (lx == 0)
-        world_find_chunk(w, c->cx - 1, c->cz, false) ? (world_find_chunk(w, c->cx - 1, c->cz, false)->dirty = true) : 0;
-    if (lx == 15)
-        world_find_chunk(w, c->cx + 1, c->cz, false) ? (world_find_chunk(w, c->cx + 1, c->cz, false)->dirty = true) : 0;
-    if (lz == 0)
-        world_find_chunk(w, c->cx, c->cz - 1, false) ? (world_find_chunk(w, c->cx, c->cz - 1, false)->dirty = true) : 0;
-    if (lz == 15)
-        world_find_chunk(w, c->cx, c->cz + 1, false) ? (world_find_chunk(w, c->cx, c->cz + 1, false)->dirty = true) : 0;
+    c->version++;
+    Chunk *n;
+    if (lx == 0 && (n = world_find_chunk(w, c->cx - 1, c->cz, false))) { n->dirty = true; n->version++; }
+    if (lx == 15 && (n = world_find_chunk(w, c->cx + 1, c->cz, false))) { n->dirty = true; n->version++; }
+    if (lz == 0 && (n = world_find_chunk(w, c->cx, c->cz - 1, false))) { n->dirty = true; n->version++; }
+    if (lz == 15 && (n = world_find_chunk(w, c->cx, c->cz + 1, false))) { n->dirty = true; n->version++; }
 }
 
 void world_set_block(World *w, int x, int y, int z, uint8_t block, bool record) {

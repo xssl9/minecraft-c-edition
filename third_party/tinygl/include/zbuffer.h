@@ -112,11 +112,11 @@ typedef GLushort PIXEL;
 
 #if TGL_FEATURE_LIT_TEXTURES == 1
 #define RGB_MIX_FUNC(rr, gg, bb, tpix) \
-	RGB_TO_PIXEL( \
-		((rr * GET_RED(tpix))>>8),\
-		((gg * GET_GREEN(tpix))>>8),\
-		((bb * GET_BLUE(tpix))>>8)\
-	)
+	( ((tpix) & 0xff000000) | RGB_TO_PIXEL( \
+		(((GLuint)(rr) * (GLuint)GET_RED(tpix))>>8),\
+		(((GLuint)(gg) * (GLuint)GET_GREEN(tpix))>>8),\
+		(((GLuint)(bb) * (GLuint)GET_BLUE(tpix))>>8)\
+	) )
 #else
 #define RGB_MIX_FUNC(rr, gg, bb, tpix)(tpix)
 #endif
@@ -162,43 +162,7 @@ typedef GLushort PIXEL;
 
 
 
-#define TGL_BLEND_FUNC(source, dest){													\
-	{																					\
-	GLuint sr, sg, sb, dr, dg, db;														\
-	{	GLuint temp = source;																\
-	sr = GET_REDDER(temp); sg = GET_GREENER(temp); sb = GET_BLUEER(temp);						\
-	temp = dest;																			\
-	dr = GET_REDDER(temp); dg = GET_GREENER(temp); db = GET_BLUEER(temp);}						\
-		/*printf("\nShould never reach this point!");*/									\
-		switch(sfactor){															\
-			case GL_ONE:																\
-			default:																	\
-			break;																		\
-			case GL_ONE_MINUS_SRC_COLOR:												\
-			sr = ~sr & COLOR_MASK;															\
-			sg = ~sg & COLOR_MASK;															\
-			sb = ~sb & COLOR_MASK;															\
-			break;																		\
-			case GL_ZERO:																\
-			sr=0;sg=0;sb=0;break;														\
-			break;																		\
-		}																				\
-		switch(dfactor){															\
-				case GL_ONE:															\
-				default:																\
-				break;																	\
-				case GL_ONE_MINUS_DST_COLOR:											\
-				dr = ~dr & COLOR_MASK;														\
-				dg = ~dg & COLOR_MASK;														\
-				db = ~db & COLOR_MASK;														\
-				break;																	\
-				case GL_ZERO:															\
-				dr=0;dg=0;db=0;break;													\
-				break;																	\
-			}																			\
-		TGL_BLEND_SWITCH_CASE(sr,sg,sb,dr,dg,db,dest)									\
-	}																					\
-} 
+#define TGL_BLEND_FUNC(source, dest){														{																							GLuint sr, sg, sb, dr, dg, db;															GLuint temp = source;																	GLuint sa = (temp >> 24) & 0xff;														sr = GET_REDDER(temp); sg = GET_GREENER(temp); sb = GET_BLUEER(temp);					temp = dest;																			dr = GET_REDDER(temp); dg = GET_GREENER(temp); db = GET_BLUEER(temp);					GLuint sr_orig = sr, sg_orig = sg, sb_orig = sb;										switch(sfactor){																			case GL_ONE:																			default:																					break;																				case GL_ZERO:																				sr=0; sg=0; sb=0; break;															case GL_SRC_ALPHA:																			sr = (sr * sa) >> 8;																	sg = (sg * sa) >> 8;																	sb = (sb * sa) >> 8;																	break;																				case GL_ONE_MINUS_SRC_ALPHA:																sr = (sr * (255 - sa)) >> 8;															sg = (sg * (255 - sa)) >> 8;															sb = (sb * (255 - sa)) >> 8;															break;																				case GL_DST_COLOR:																			sr = (sr * (dr >> 16)) >> 8;															sg = (sg * (dg >> 16)) >> 8;															sb = (sb * (db >> 16)) >> 8;															break;																				case GL_ONE_MINUS_SRC_COLOR:																sr = ~sr & COLOR_MASK;																	sg = ~sg & COLOR_MASK;																	sb = ~sb & COLOR_MASK;																	break;																			}																						switch(dfactor){																			case GL_ONE:																			default:																					break;																				case GL_ZERO:																				dr=0; dg=0; db=0; break;															case GL_SRC_ALPHA:																			dr = (dr * sa) >> 8;																	dg = (dg * sa) >> 8;																	db = (db * sa) >> 8;																	break;																				case GL_ONE_MINUS_SRC_ALPHA:																dr = (dr * (255 - sa)) >> 8;															dg = (dg * (255 - sa)) >> 8;															db = (db * (255 - sa)) >> 8;															break;																				case GL_SRC_COLOR:																			dr = (dr * (sr_orig >> 16)) >> 8;														dg = (dg * (sg_orig >> 16)) >> 8;														db = (db * (sb_orig >> 16)) >> 8;														break;																				case GL_ONE_MINUS_DST_COLOR:																dr = ~dr & COLOR_MASK;																	dg = ~dg & COLOR_MASK;																	db = ~db & COLOR_MASK;																	break;																			}																						TGL_BLEND_SWITCH_CASE(sr,sg,sb,dr,dg,db,dest)										}																					}
 
 #define TGL_BLEND_FUNC_RGB(rr, gg, bb, dest){											\
 	{																					\
@@ -272,6 +236,11 @@ typedef struct {
     /* depth */
     GLint depth_test;
     GLint depth_write;
+    /* alpha test */
+    GLint alpha_test;
+    GLenum alpha_func;
+    GLfloat alpha_ref;
+    GLint alpha_ref_val;
     GLubyte frame_buffer_allocated;
 } ZBuffer;
 
@@ -279,7 +248,7 @@ typedef struct {
   GLint x,y,z;     /* integer coordinates in the zbuffer */
   GLint s,t;       /* coordinates for the mapping */
   GLint r,g,b;     /* color indexes */
-  
+  GLint a;         /* alpha 0..255 */
   GLfloat sz,tz;   /* temporary coordinates for mapping */
 } ZBufferPoint;
 

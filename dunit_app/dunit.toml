@@ -1,0 +1,9 @@
+schema_version = 1
+
+[application]
+id = "mced"
+name = "Minecraft C Edition"
+kind = "gui"
+binary = "mced"
+capabilities = []
+icon = "/assets/icons/monitor.rgba"

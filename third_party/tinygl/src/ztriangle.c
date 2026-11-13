@@ -41,7 +41,11 @@ static GLfloat edgeFunction(GLfloat ax, GLfloat ay, GLfloat bx, GLfloat by, GLfl
 #define NODRAWTEST(c) /* a comment */
 #endif
 
-#define ZCMP(z, zpix, _a, c) (((!zbdt) || (z >= zpix)) STIPTEST(_a) NODRAWTEST(c))
+#define TGL_ALPHAVARS 	GLubyte zbalphatest = zb->alpha_test; 	GLint zbalpharef = zb->alpha_ref_val;
+
+#define ALPHATEST(c) &&(!zbalphatest || (((c) >> 24) >= (GLuint)zbalpharef))
+
+#define ZCMP(z, zpix, _a, c) (((!zbdt) || (z >= zpix)) STIPTEST(_a) NODRAWTEST(c) ALPHATEST(c))
 #define ZCMPSIMP(z, zpix, _a, crabapple) (((!zbdt) || (z >= zpix)) STIPTEST(_a))
 
 void ZB_fillTriangleFlat(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBufferPoint* p2) {
@@ -59,8 +63,8 @@ void ZB_fillTriangleFlat(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoint* p1, ZBuffe
 #define INTERP_Z
 
 
-#define DRAW_INIT()                                                                                                                                            \
-	{ color = RGB_TO_PIXEL(p2->r, p2->g, p2->b); }
+#define DRAW_INIT() 
+	{ color = ((GLuint)(p2->a & 0xff) << 24) | RGB_TO_PIXEL(p2->r, p2->g, p2->b); }
 
 #define PUT_PIXEL(_a)                                                                                                                                          \
 	{                                                                                                                                                          \
@@ -336,6 +340,7 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 	GLubyte zbdt = zb->depth_test;
 	TGL_BLEND_VARS
 	TGL_STIPPLEVARS
+	TGL_ALPHAVARS
 #define INTERP_Z
 #define INTERP_STZ
 #define INTERP_RGB
@@ -391,11 +396,13 @@ void ZB_fillTriangleMappingPerspective(ZBuffer* zb, ZBufferPoint* p0, ZBufferPoi
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
-			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
-				TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));                                                                                      \
-				if (zbdw)                                                                                                                                      \
-					pz[_a] = zz;                                                                                                                               \
+			if ((!zbdt) || (zz >= pz[_a])) {                                                                                                                   \
+				PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                       \
+				if (1 STIPTEST(_a) NODRAWTEST(c) ALPHATEST(c)) {                                                                                               \
+					TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));                                                                                  \
+					if (zbdw)                                                                                                                                  \
+						pz[_a] = zz;                                                                                                                           \
+				}                                                                                                                                              \
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \
@@ -416,6 +423,7 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 	GLubyte zbdw = zb->depth_write;
 	GLubyte zbdt = zb->depth_test;
 	TGL_STIPPLEVARS
+	TGL_ALPHAVARS
 #define INTERP_Z
 #define INTERP_STZ
 #define INTERP_RGB
@@ -468,12 +476,13 @@ void ZB_fillTriangleMappingPerspectiveNOBLEND(ZBuffer* zb, ZBufferPoint* p0, ZBu
 	{                                                                                                                                                          \
 		{                                                                                                                                                      \
 			register GLuint zz = z >> ZB_POINT_Z_FRAC_BITS;                                                                                                    \
-			PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                           \
-			if (ZCMP(zz, pz[_a], _a, c)) {                                                                                                                     \
-				pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, c);                                                                                                       \
-				/*TGL_BLEND_FUNC(RGB_MIX_FUNC(or1, og1, ob1, c), (pp[_a]));*/                                                                                  \
-				if (zbdw)                                                                                                                                      \
-					pz[_a] = zz;                                                                                                                               \
+			if ((!zbdt) || (zz >= pz[_a])) {                                                                                                                   \
+				PIXEL c = TEXTURE_SAMPLE(texture, s, t);                                                                                                       \
+				if (1 STIPTEST(_a) NODRAWTEST(c) ALPHATEST(c)) {                                                                                               \
+					pp[_a] = RGB_MIX_FUNC(or1, og1, ob1, c);                                                                                                   \
+					if (zbdw)                                                                                                                                  \
+						pz[_a] = zz;                                                                                                                           \
+				}                                                                                                                                              \
 			}                                                                                                                                                  \
 		}                                                                                                                                                      \
 		z += dzdx;                                                                                                                                             \

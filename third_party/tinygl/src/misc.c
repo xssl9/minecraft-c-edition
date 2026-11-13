@@ -75,6 +75,22 @@ void glopBlendEquation(GLParam* p) {
 	c->zb->blendeq = p[1].i;
 }
 
+void glAlphaFunc(GLenum func, GLclampf ref) {
+	GLParam p[3];
+#include "error_check_no_context.h"
+	p[0].op = OP_AlphaFunc;
+	p[1].i = func;
+	p[2].f = ref;
+	gl_add_op(p);
+}
+
+void glopAlphaFunc(GLParam* p) {
+	GLContext* c = gl_get_context();
+	c->zb->alpha_func = p[1].i;
+	c->zb->alpha_ref = p[2].f;
+	c->zb->alpha_ref_val = (GLint)(p[2].f * 255.0f);
+}
+
 void glopPointSize(GLParam* p) {
 	GLContext* c = gl_get_context();
 	c->zb->pointsize = p[1].f;
@@ -113,6 +129,9 @@ void glopEnableDisable(GLParam* p) {
 		break;
 	case GL_DEPTH_TEST:
 		c->zb->depth_test = v;
+		break;
+	case GL_ALPHA_TEST:
+		c->zb->alpha_test = v;
 		break;
 	case GL_POLYGON_OFFSET_FILL:
 		if (v)

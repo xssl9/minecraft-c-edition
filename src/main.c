@@ -10,7 +10,11 @@
 #include "entity.h"
 #include "thread_pool.h"
 
+#ifdef MCED_DUNIT
+#include "sdl_compat.h"
+#else
 #include <SDL.h>
+#endif
 #include <ctype.h>
 #include <errno.h>
 #include <strings.h>
@@ -310,6 +314,9 @@ static void update_mouse_capture(App *a) {
 }
 
 static void present_screen(App *a) {
+#ifdef MCED_DUNIT
+    (void)a;
+#else
     if (a->headless)
         return;
 #if MCED_USE_GL
@@ -319,6 +326,7 @@ static void present_screen(App *a) {
     SDL_RenderClear(a->sdl);
     SDL_RenderCopy(a->sdl, a->screen, NULL, NULL);
     SDL_RenderPresent(a->sdl);
+#endif
 #endif
 }
 
@@ -1350,6 +1358,7 @@ static void handle_key(App *a, SDL_Keycode key, bool down) {
     }
 }
 
+#ifndef MCED_DUNIT
 static void handle_event(App *a, SDL_Event *e) {
     switch (e->type) {
     case SDL_QUIT:
@@ -1531,6 +1540,7 @@ static void handle_event(App *a, SDL_Event *e) {
         break;
     }
 }
+#endif
 
 static void spawn_dropped_item_vec(App *a, uint8_t block, Vec3 pos) {
     if (block == BLOCK_AIR || block == BLOCK_BEDROCK)
@@ -2408,6 +2418,11 @@ static void render_frame(App *a) {
 }
 
 static void init_sdl(App *a) {
+#ifdef MCED_DUNIT
+    a->render_w = a->internal_w;
+    a->render_h = a->internal_h;
+    return;
+#else
     if (a->headless) {
         if (SDL_Init(SDL_INIT_VIDEO) != 0)
             die("SDL initialization failed");
@@ -2498,6 +2513,7 @@ static void init_sdl(App *a) {
     a->render_w = a->internal_w;
     a->render_h = a->internal_h;
 #endif
+#endif
 }
 
 static void shutdown_app(App *a) {
@@ -2517,6 +2533,7 @@ static void shutdown_app(App *a) {
     }
     audio_shutdown(&a->audio);
     assets_free(&a->assets);
+#ifndef MCED_DUNIT
 #if MCED_USE_GL
     if (a->gl_context) SDL_GL_DeleteContext(a->gl_context);
 #endif
@@ -2524,6 +2541,7 @@ static void shutdown_app(App *a) {
     if (a->sdl) SDL_DestroyRenderer(a->sdl);
     if (a->window) SDL_DestroyWindow(a->window);
     SDL_Quit();
+#endif
 }
 
 static void usage(const char *argv0) {
@@ -2556,6 +2574,7 @@ static void usage(const char *argv0) {
     printf("personal use only. Do not redistribute Mojang assets.\n");
 }
 
+#ifndef MCED_DUNIT
 int main(int argc, char **argv) {
     App app;
     memset(&app, 0, sizeof(app));
@@ -2944,3 +2963,4 @@ int main(int argc, char **argv) {
     shutdown_app(&app);
     return 0;
 }
+#endif

@@ -7,9 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if MCED_USE_GL
 #include <GL/gl.h>
-#endif
 
 void entity_manager_init(EntityManager *em, const Assets *assets) {
     memset(em, 0, sizeof(*em));
@@ -403,7 +401,6 @@ bool entity_damage(EntityManager *em, Entity *e, float damage, Vec3 knockback, A
     return false;
 }
 
-#if MCED_USE_GL
 static void draw_shaded_box(float min_x, float min_y, float min_z,
                             float max_x, float max_y, float max_z,
                             float r, float g, float b, bool hurt) {
@@ -530,13 +527,11 @@ static void draw_box_uv(float min_x, float min_y, float min_z,
     glTexCoord2f(u_rt1, v_rt0); glVertex3f(max_x, max_y, min_z);
     glEnd();
 }
-#endif
 
 void entity_render_all(const EntityManager *em, const Renderer *renderer, const Vec3 *player_pos) {
     (void)player_pos;
     const Renderer *r = renderer;
 
-#if MCED_USE_GL
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_CULL_FACE);
@@ -878,5 +873,4 @@ void entity_render_all(const EntityManager *em, const Renderer *renderer, const 
         glPopMatrix();
     }
     glDisable(GL_TEXTURE_2D);
-#endif
 }

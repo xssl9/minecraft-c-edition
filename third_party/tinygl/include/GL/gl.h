@@ -726,6 +726,8 @@ typedef unsigned short	GLushort;	/* 2-byte unsigned */
 typedef unsigned int	GLuint;		/* 4-byte unsigned */
 typedef float		GLfloat;	/* single precision float */
 typedef double		GLdouble;	/* double precision float */
+typedef float		GLclampf;
+typedef double		GLclampd;
 typedef GLint 		GLsizei; /* Same as GLint */
 
 
@@ -968,6 +970,7 @@ void glBindBufferAsArray(GLenum target, GLuint buffer, GLenum type, GLint size, 
 void glPolygonOffset(GLfloat factor, GLfloat units);
 void glBlendFunc(GLint, GLint);
 void glBlendEquation(GLenum mode);
+void glAlphaFunc(GLenum func, GLclampf ref);
 void glDepthMask(GLint);
 
 /* Point Size */

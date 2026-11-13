@@ -78,7 +78,7 @@ static bool make_asset_root(char *out, size_t out_size, const char *hint) {
     return false;
 }
 
-static void add_tile(Assets *a, const char *name, int tile) {
+void assets_add_tile(Assets *a, const char *name, int tile) {
     if (a->tile_count == a->tile_capacity) {
         a->tile_capacity = a->tile_capacity ? a->tile_capacity * 2 : 2048;
         a->tiles = xrealloc(a->tiles, (size_t)a->tile_capacity * sizeof(AssetTile));
@@ -123,7 +123,7 @@ bool assets_load(Assets *a, const char *hint) {
     char name[96];
     int tile;
     while (fscanf(f, "%95s %d", name, &tile) == 2)
-        add_tile(a, name, tile);
+        assets_add_tile(a, name, tile);
     fclose(f);
 
     snprintf(path, sizeof(path), "%s/generated/menu.rgb", a->root);

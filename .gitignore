@@ -1,6 +1,10 @@
 # build output
 build/
 build-*/
+build_*/
+dunit_build/
+dunit_app/target/
+releases/
 
 # imported Minecraft resources and screenshots (not redistributable)
 screenshots/

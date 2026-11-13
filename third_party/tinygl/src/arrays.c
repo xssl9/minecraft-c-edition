@@ -361,13 +361,29 @@ void glArrayElement(GLint i) {
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 	GLint i;
 	GLint end;
-	
+	GLContext* c = gl_get_context();
 #include "error_check_no_context.h"
 	end = first + count;
-	glBegin(mode);
-	for (i = first; i < end; i++)
-		glArrayElement(i);
-	glEnd();
+	if (c->compile_flag) {
+		glBegin(mode);
+		for (i = first; i < end; i++)
+			glArrayElement(i);
+		glEnd();
+	} else {
+		GLParam bp[2];
+		bp[0].op = OP_Begin;
+		bp[1].i = mode;
+		glopBegin(bp);
+		for (i = first; i < end; i++) {
+			GLParam ep[2];
+			ep[0].op = OP_ArrayElement;
+			ep[1].i = i;
+			glopArrayElement(ep);
+		}
+		GLParam ep[1];
+		ep[0].op = OP_End;
+		glopEnd(ep);
+	}
 }
 
 void glopEnableClientState(GLParam* p) { gl_get_context()->client_states |= p[1].i; }

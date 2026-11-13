@@ -1,0 +1,8 @@
+[package]
+name = "mced"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dunit = { path = "/home/tuxpc/dunit-os/runtime/dunit", features = ["gui"] }
+libdunit = { path = "/home/tuxpc/dunit-os/userspace/libdunit" }

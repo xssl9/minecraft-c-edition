@@ -19,7 +19,7 @@ ZBuffer* ZB_open(GLint xsize, GLint ysize, GLint mode,
 	if (zb == NULL)
 		return NULL;
 
-	zb->xsize = xsize & ~3; 
+	zb->xsize = xsize; 
 	zb->ysize = ysize;
 	
 	
@@ -58,6 +58,10 @@ ZBuffer* ZB_open(GLint xsize, GLint ysize, GLint mode,
 	}
 
 	zb->current_texture = NULL;
+	zb->alpha_test = 0;
+	zb->alpha_func = GL_GREATER;
+	zb->alpha_ref = 0.1f;
+	zb->alpha_ref_val = 25;
 
 	return zb;
 error:
@@ -76,9 +80,6 @@ void ZB_close(ZBuffer* zb) {
 
 void ZB_resize(ZBuffer* zb, void* frame_buffer, GLint xsize, GLint ysize) {
 	GLint size;
-
-	/* xsize must be a multiple of 4 */
-	xsize = xsize & ~3;
 
 	zb->xsize = xsize;
 	zb->ysize = ysize;

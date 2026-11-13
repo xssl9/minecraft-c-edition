@@ -178,13 +178,18 @@ static void build_font_texture(const Assets *assets, uint8_t *out) {
 }
 
 void renderer_resize(Renderer *r, int width, int height) {
-    r->width = width & ~1;
+    r->width = width;
     r->height = height;
     float scale = (float)height / 360.0f;
     if (scale < 1.0f) scale = 1.0f;
     r->ui_scale = scale;
     r->ui_width = (int)((float)r->width / scale);
     r->ui_height = (int)((float)r->height / scale);
+#if !MCED_USE_GL
+    if (r->zb) {
+        ZB_resize(r->zb, NULL, r->width, r->height);
+    }
+#endif
     glViewport(0, 0, r->width, r->height);
 }
 
@@ -208,6 +213,7 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
     r->last_pcx = 999999;
     r->last_pcz = 999999;
     r->all_built = false;
+    r->smooth_lighting = true;
     renderer_resize(r, width, height);
 
 #if MCED_USE_GL
@@ -233,10 +239,8 @@ bool renderer_init(Renderer *r, const Assets *assets, int width, int height) {
     glClearColor(0.55f, 0.72f, 0.98f, 1.0f);
 #endif
 
-#if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
-#endif
 
     if (assets->atlas_rgba)
         r->atlas_tex = upload_rgba(assets->atlas_rgba);
@@ -871,25 +875,27 @@ static void vert(RVertex *v, float x, float y, float z, float u, float vv,
                  float sh, float tr, float tg, float tb) {
     v->x = x; v->y = y; v->z = z;
     v->u = u; v->v = vv;
-    v->r = sh * tr;
-    v->g = sh * tg;
-    v->b = sh * tb;
+    float r = sh * tr;
+    float g = sh * tg;
+    float b = sh * tb;
+    v->r = r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
+    v->g = g < 0.0f ? 0.0f : (g > 1.0f ? 1.0f : g);
+    v->b = b < 0.0f ? 0.0f : (b > 1.0f ? 1.0f : b);
 }
 
 static void emit_face(MeshBuffer *mb, const Assets *assets, int face, uint16_t tile,
                       float x, float y, float z, float h,
-                      float sh, float tr, float tg, float tb,
-                      const float ao[4]) {
+                      const float vsh[4], float tr, float tg, float tb) {
     float u0, v0, u1, v1;
     assets_tile_uv(assets, tile, &u0, &v0, &u1, &v1);
     if (h < 0.99f && (face == FACE_NORTH || face == FACE_SOUTH || face == FACE_EAST || face == FACE_WEST)) {
         v1 = v0 + (v1 - v0) * h;
     }
     RVertex a, b, c, d;
-    float sh0 = sh * (ao ? ao[0] : 1.0f);
-    float sh1 = sh * (ao ? ao[1] : 1.0f);
-    float sh2 = sh * (ao ? ao[2] : 1.0f);
-    float sh3 = sh * (ao ? ao[3] : 1.0f);
+    float sh0 = vsh[0];
+    float sh1 = vsh[1];
+    float sh2 = vsh[2];
+    float sh3 = vsh[3];
     switch (face) {
     case FACE_TOP:
         vert(&a, x, y + h, z, u0, v0, sh0, tr, tg, tb);
@@ -930,7 +936,12 @@ static void emit_face(MeshBuffer *mb, const Assets *assets, int face, uint16_t t
     default:
         return;
     }
-    mesh_buf_push(mb, a, b, c, d);
+
+    if (sh0 + sh2 < sh1 + sh3) {
+        mesh_buf_push(mb, b, c, d, a);
+    } else {
+        mesh_buf_push(mb, a, b, c, d);
+    }
 }
 
 static void emit_cross(MeshBuffer *mb, const Assets *assets, uint16_t tile,
@@ -1215,13 +1226,48 @@ typedef struct {
     uint8_t light;
 } ChunkLightEmitter;
 
-static inline float compute_light_level(const Chunk *c, const ChunkLightEmitter *emitters, int emitter_count,
+static inline int get_surface_height(const MeshTask *task, int lx, int lz) {
+    if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE)
+        return task->c->heightmap[lx + lz * CHUNK_SIZE];
+
+    int clx = lx;
+    int clz = lz;
+    Chunk *target = task->c;
+
+    if (clx < 0) {
+        clx += CHUNK_SIZE;
+        if (clz < 0) { clz += CHUNK_SIZE; target = task->nb_nw; }
+        else if (clz >= CHUNK_SIZE) { clz -= CHUNK_SIZE; target = task->nb_sw; }
+        else { target = task->nb_w; }
+    } else if (clx >= CHUNK_SIZE) {
+        clx -= CHUNK_SIZE;
+        if (clz < 0) { clz += CHUNK_SIZE; target = task->nb_ne; }
+        else if (clz >= CHUNK_SIZE) { clz -= CHUNK_SIZE; target = task->nb_se; }
+        else { target = task->nb_e; }
+    } else {
+        if (clz < 0) { clz += CHUNK_SIZE; target = task->nb_n; }
+        else if (clz >= CHUNK_SIZE) { clz -= CHUNK_SIZE; target = task->nb_s; }
+    }
+
+    if (is_chunk_ready(target)) {
+        if (clx < 0) clx = 0; else if (clx >= CHUNK_SIZE) clx = CHUNK_SIZE - 1;
+        if (clz < 0) clz = 0; else if (clz >= CHUNK_SIZE) clz = CHUNK_SIZE - 1;
+        return target->heightmap[clx + clz * CHUNK_SIZE];
+    }
+
+    int fallback_x = lx < 0 ? 0 : (lx >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lx);
+    int fallback_z = lz < 0 ? 0 : (lz >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lz);
+    return task->c->heightmap[fallback_x + fallback_z * CHUNK_SIZE];
+}
+
+static inline float compute_light_level(const MeshTask *task, const ChunkLightEmitter *emitters, int emitter_count,
                                         int lx, int y, int lz, float user_brightness) {
-    /* 1. Sky light: 1.0 at or above surface heightmap, drops rapidly in enclosed caves */
+    if (y < 0) return 0.08f + 0.08f * user_brightness;
+    if (y >= WORLD_HEIGHT) return 1.0f;
+
+    /* 1. Sky light: 1.0 at or above surface heightmap, drops smoothly into enclosed caves */
     float sky_light = 1.0f;
-    int hlx = lx < 0 ? 0 : (lx >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lx);
-    int hlz = lz < 0 ? 0 : (lz >= CHUNK_SIZE ? CHUNK_SIZE - 1 : lz);
-    int surface_y = c->heightmap[hlx + hlz * CHUNK_SIZE];
+    int surface_y = get_surface_height(task, lx, lz);
     if (y < surface_y) {
         int depth = surface_y - y;
         if (depth <= 1) sky_light = 0.70f;
@@ -1247,8 +1293,54 @@ static inline float compute_light_level(const Chunk *c, const ChunkLightEmitter 
     float min_amb = 0.08f + 0.08f * user_brightness;
     float l = fmaxf(sky_light, block_light);
     if (l < min_amb) l = min_amb;
+    if (l > 1.0f) l = 1.0f;
     return l;
 }
+
+static const int8_t AO_OFFSETS[FACE_COUNT][4][3][3] = {
+    /* FACE_TOP (+Y) */
+    {
+        { {-1, 1, 0}, {0, 1, -1}, {-1, 1, -1} }, /* vert 0: (-X, -Z) */
+        { {-1, 1, 0}, {0, 1, 1},  {-1, 1, 1}  }, /* vert 1: (-X, +Z) */
+        { {1, 1, 0},  {0, 1, 1},  {1, 1, 1}   }, /* vert 2: (+X, +Z) */
+        { {1, 1, 0},  {0, 1, -1}, {1, 1, -1}  }  /* vert 3: (+X, -Z) */
+    },
+    /* FACE_BOTTOM (-Y) */
+    {
+        { {-1, -1, 0}, {0, -1, -1}, {-1, -1, -1} }, /* vert 0: (-X, -Z) */
+        { {1, -1, 0},  {0, -1, -1}, {1, -1, -1}  }, /* vert 1: (+X, -Z) */
+        { {1, -1, 0},  {0, -1, 1},  {1, -1, 1}   }, /* vert 2: (+X, +Z) */
+        { {-1, -1, 0}, {0, -1, 1},  {-1, -1, 1}  }  /* vert 3: (-X, +Z) */
+    },
+    /* FACE_NORTH (-Z) */
+    {
+        { {1, 0, -1},  {0, 1, -1},  {1, 1, -1}  }, /* vert 0: (+X, +Y) */
+        { {1, 0, -1},  {0, -1, -1}, {1, -1, -1} }, /* vert 1: (+X, -Y) */
+        { {-1, 0, -1}, {0, -1, -1}, {-1, -1, -1} }, /* vert 2: (-X, -Y) */
+        { {-1, 0, -1}, {0, 1, -1},  {-1, 1, -1} }  /* vert 3: (-X, +Y) */
+    },
+    /* FACE_SOUTH (+Z) */
+    {
+        { {-1, 0, 1}, {0, 1, 1},  {-1, 1, 1} }, /* vert 0: (-X, +Y) */
+        { {-1, 0, 1}, {0, -1, 1}, {-1, -1, 1} }, /* vert 1: (-X, -Y) */
+        { {1, 0, 1},  {0, -1, 1}, {1, -1, 1} },  /* vert 2: (+X, -Y) */
+        { {1, 0, 1},  {0, 1, 1},  {1, 1, 1} }   /* vert 3: (+X, +Y) */
+    },
+    /* FACE_EAST (+X) */
+    {
+        { {1, 0, 1},  {1, 1, 0},  {1, 1, 1} },  /* vert 0: (+Z, +Y) */
+        { {1, 0, 1},  {1, -1, 0}, {1, -1, 1} }, /* vert 1: (+Z, -Y) */
+        { {1, 0, -1}, {1, -1, 0}, {1, -1, -1} },/* vert 2: (-Z, -Y) */
+        { {1, 0, -1}, {1, 1, 0},  {1, 1, -1} }  /* vert 3: (-Z, +Y) */
+    },
+    /* FACE_WEST (-X) */
+    {
+        { {-1, 0, -1}, {-1, 1, 0},  {-1, 1, -1} }, /* vert 0: (-Z, +Y) */
+        { {-1, 0, -1}, {-1, -1, 0}, {-1, -1, -1} }, /* vert 1: (-Z, -Y) */
+        { {-1, 0, 1},  {-1, -1, 0}, {-1, -1, 1} },  /* vert 2: (+Z, -Y) */
+        { {-1, 0, 1},  {-1, 1, 0},  {-1, 1, 1} }   /* vert 3: (+Z, +Y) */
+    }
+};
 
 static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_min_y, int *out_max_y) {
     static const float shade[FACE_COUNT] = {1.00f, 0.50f, 0.80f, 0.80f, 0.65f, 0.65f};
@@ -1283,16 +1375,72 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
     max_y += 16;
     if (max_y >= WORLD_HEIGHT) max_y = WORLD_HEIGHT - 1;
 
-    ChunkLightEmitter emitters[128];
+    ChunkLightEmitter emitters[256];
     int emitter_count = 0;
     for (int elx = 0; elx < CHUNK_SIZE; elx++) {
         for (int elz = 0; elz < CHUNK_SIZE; elz++) {
             for (int ey = 0; ey <= max_y; ey++) {
                 uint8_t bid = c->blocks[chunk_index_local(elx, ey, elz)];
                 if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0) {
-                    if (emitter_count < 128) {
+                    if (emitter_count < 256) {
                         emitters[emitter_count++] = (ChunkLightEmitter){
                             (int8_t)elx, (int8_t)elz, (int16_t)ey, g_block_defs[bid].light
+                        };
+                    }
+                }
+            }
+        }
+    }
+    if (is_chunk_ready(task->nb_e)) {
+        for (int elx = 0; elx < 3; elx++) {
+            for (int elz = 0; elz < CHUNK_SIZE; elz++) {
+                for (int ey = 0; ey <= max_y; ey++) {
+                    uint8_t bid = task->nb_e->blocks[chunk_index_local(elx, ey, elz)];
+                    if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0 && emitter_count < 256) {
+                        emitters[emitter_count++] = (ChunkLightEmitter){
+                            (int8_t)(CHUNK_SIZE + elx), (int8_t)elz, (int16_t)ey, g_block_defs[bid].light
+                        };
+                    }
+                }
+            }
+        }
+    }
+    if (is_chunk_ready(task->nb_w)) {
+        for (int elx = CHUNK_SIZE - 3; elx < CHUNK_SIZE; elx++) {
+            for (int elz = 0; elz < CHUNK_SIZE; elz++) {
+                for (int ey = 0; ey <= max_y; ey++) {
+                    uint8_t bid = task->nb_w->blocks[chunk_index_local(elx, ey, elz)];
+                    if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0 && emitter_count < 256) {
+                        emitters[emitter_count++] = (ChunkLightEmitter){
+                            (int8_t)(-CHUNK_SIZE + elx), (int8_t)elz, (int16_t)ey, g_block_defs[bid].light
+                        };
+                    }
+                }
+            }
+        }
+    }
+    if (is_chunk_ready(task->nb_s)) {
+        for (int elx = 0; elx < CHUNK_SIZE; elx++) {
+            for (int elz = 0; elz < 3; elz++) {
+                for (int ey = 0; ey <= max_y; ey++) {
+                    uint8_t bid = task->nb_s->blocks[chunk_index_local(elx, ey, elz)];
+                    if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0 && emitter_count < 256) {
+                        emitters[emitter_count++] = (ChunkLightEmitter){
+                            (int8_t)elx, (int8_t)(CHUNK_SIZE + elz), (int16_t)ey, g_block_defs[bid].light
+                        };
+                    }
+                }
+            }
+        }
+    }
+    if (is_chunk_ready(task->nb_n)) {
+        for (int elx = 0; elx < CHUNK_SIZE; elx++) {
+            for (int elz = CHUNK_SIZE - 3; elz < CHUNK_SIZE; elz++) {
+                for (int ey = 0; ey <= max_y; ey++) {
+                    uint8_t bid = task->nb_n->blocks[chunk_index_local(elx, ey, elz)];
+                    if (bid < BLOCK_COUNT && g_block_defs[bid].light > 0 && emitter_count < 256) {
+                        emitters[emitter_count++] = (ChunkLightEmitter){
+                            (int8_t)elx, (int8_t)(-CHUNK_SIZE + elz), (int16_t)ey, g_block_defs[bid].light
                         };
                     }
                 }
@@ -1308,7 +1456,7 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                 if (id == BLOCK_AIR || id >= BLOCK_COUNT)
                     continue;
                 const BlockDef *def = &g_block_defs[id];
-                float block_l = compute_light_level(c, emitters, emitter_count, lx, y, lz, user_br);
+                float block_l = compute_light_level(task, emitters, emitter_count, lx, y, lz, user_br);
                 if (def->light > 0) block_l = 1.0f;
 
                 if (def->shape == SHAPE_TORCH) {
@@ -1378,67 +1526,69 @@ static void mesh_chunk_geometry(const MeshTask *task, MeshBuffer *mb, int *out_m
                         tb2 = def->tint_b;
                     }
                     int nx = lx + fdx[f], ny = y + fdy[f], nz = lz + fdz[f];
-                    float face_l = compute_light_level(c, emitters, emitter_count, nx, ny, nz, user_br);
-                    if (def->light > 0) face_l = 1.0f;
-                    float sh = shade[f] * face_l;
-                    if (def->light > 0)
-                        sh = 1.0f;
+                    float face_l = compute_light_level(task, emitters, emitter_count, nx, ny, nz, user_br);
                     if (y < min_y)
                         min_y = y;
                     if (y + 1 > max_y)
                         max_y = y + 1;
 
-                    float ao[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-                    const float *ao_ptr = NULL;
-                    if (task->smooth_lighting && def->light == 0 && !def->liquid) {
-                        #define S(dx, dy, dz) is_solid_block8(task, lx, y, lz, dx, dy, dz)
-                        switch (f) {
-                        case FACE_TOP:
-                            ao[0] = vertex_ao(S(-1, 1, 0), S(0, 1, -1), S(-1, 1, -1));
-                            ao[1] = vertex_ao(S(-1, 1, 0), S(0, 1, 1),  S(-1, 1, 1));
-                            ao[2] = vertex_ao(S(1, 1, 0),  S(0, 1, 1),  S(1, 1, 1));
-                            ao[3] = vertex_ao(S(1, 1, 0),  S(0, 1, -1), S(1, 1, -1));
-                            break;
-                        case FACE_BOTTOM:
-                            ao[0] = vertex_ao(S(-1, -1, 0), S(0, -1, -1), S(-1, -1, -1));
-                            ao[1] = vertex_ao(S(1, -1, 0),  S(0, -1, -1), S(1, -1, -1));
-                            ao[2] = vertex_ao(S(1, -1, 0),  S(0, -1, 1),  S(1, -1, 1));
-                            ao[3] = vertex_ao(S(-1, -1, 0), S(0, -1, 1),  S(-1, -1, 1));
-                            break;
-                        case FACE_NORTH:
-                            ao[0] = vertex_ao(S(1, 0, -1), S(0, 1, -1), S(1, 1, -1));
-                            ao[1] = vertex_ao(S(1, 0, -1), S(0, -1, -1), S(1, -1, -1));
-                            ao[2] = vertex_ao(S(-1, 0, -1), S(0, -1, -1), S(-1, -1, -1));
-                            ao[3] = vertex_ao(S(-1, 0, -1), S(0, 1, -1), S(-1, 1, -1));
-                            break;
-                        case FACE_SOUTH:
-                            ao[0] = vertex_ao(S(-1, 0, 1), S(0, 1, 1), S(-1, 1, 1));
-                            ao[1] = vertex_ao(S(-1, 0, 1), S(0, -1, 1), S(-1, -1, 1));
-                            ao[2] = vertex_ao(S(1, 0, 1),  S(0, -1, 1), S(1, -1, 1));
-                            ao[3] = vertex_ao(S(1, 0, 1),  S(0, 1, 1),  S(1, 1, 1));
-                            break;
-                        case FACE_EAST:
-                            ao[0] = vertex_ao(S(1, 0, 1),  S(1, 1, 0), S(1, 1, 1));
-                            ao[1] = vertex_ao(S(1, 0, 1),  S(1, -1, 0), S(1, -1, 1));
-                            ao[2] = vertex_ao(S(1, 0, -1), S(1, -1, 0), S(1, -1, -1));
-                            ao[3] = vertex_ao(S(1, 0, -1), S(1, 1, 0), S(1, 1, -1));
-                            break;
-                        case FACE_WEST:
-                            ao[0] = vertex_ao(S(-1, 0, -1), S(-1, 1, 0), S(-1, 1, -1));
-                            ao[1] = vertex_ao(S(-1, 0, -1), S(-1, -1, 0), S(-1, -1, -1));
-                            ao[2] = vertex_ao(S(-1, 0, 1),  S(-1, -1, 0), S(-1, -1, 1));
-                            ao[3] = vertex_ao(S(-1, 0, 1),  S(-1, 1, 0), S(-1, 1, 1));
-                            break;
+                    float corner_sh[4];
+                    if (def->light > 0) {
+                        corner_sh[0] = 1.0f;
+                        corner_sh[1] = 1.0f;
+                        corner_sh[2] = 1.0f;
+                        corner_sh[3] = 1.0f;
+                    } else if (!task->smooth_lighting) {
+                        float sh = shade[f] * face_l;
+                        corner_sh[0] = sh;
+                        corner_sh[1] = sh;
+                        corner_sh[2] = sh;
+                        corner_sh[3] = sh;
+                    } else {
+                        for (int v = 0; v < 4; v++) {
+                            int s1_dx = AO_OFFSETS[f][v][0][0], s1_dy = AO_OFFSETS[f][v][0][1], s1_dz = AO_OFFSETS[f][v][0][2];
+                            int s2_dx = AO_OFFSETS[f][v][1][0], s2_dy = AO_OFFSETS[f][v][1][1], s2_dz = AO_OFFSETS[f][v][1][2];
+                            int c_dx  = AO_OFFSETS[f][v][2][0], c_dy  = AO_OFFSETS[f][v][2][1], c_dz  = AO_OFFSETS[f][v][2][2];
+
+                            uint8_t b_s1 = fast_neighbour8(task, lx, y, lz, s1_dx, s1_dy, s1_dz);
+                            uint8_t b_s2 = fast_neighbour8(task, lx, y, lz, s2_dx, s2_dy, s2_dz);
+                            uint8_t b_c  = fast_neighbour8(task, lx, y, lz, c_dx, c_dy, c_dz);
+
+                            bool s1_solid = block_is_opaque(b_s1);
+                            bool s2_solid = block_is_opaque(b_s2);
+                            bool c_solid  = (s1_solid && s2_solid) ? true : block_is_opaque(b_c);
+
+                            float v_ao = def->liquid ? 1.0f : vertex_ao(s1_solid, s2_solid, c_solid);
+
+                            float l_sum = face_l;
+                            int l_count = 1;
+
+                            if (!s1_solid || (b_s1 < BLOCK_COUNT && g_block_defs[b_s1].light > 0)) {
+                                l_sum += compute_light_level(task, emitters, emitter_count,
+                                                             lx + s1_dx, y + s1_dy, lz + s1_dz, user_br);
+                                l_count++;
+                            }
+                            if (!s2_solid || (b_s2 < BLOCK_COUNT && g_block_defs[b_s2].light > 0)) {
+                                l_sum += compute_light_level(task, emitters, emitter_count,
+                                                             lx + s2_dx, y + s2_dy, lz + s2_dz, user_br);
+                                l_count++;
+                            }
+                            if ((!s1_solid && !s2_solid && !c_solid) || (b_c < BLOCK_COUNT && g_block_defs[b_c].light > 0)) {
+                                l_sum += compute_light_level(task, emitters, emitter_count,
+                                                             lx + c_dx, y + c_dy, lz + c_dz, user_br);
+                                l_count++;
+                            }
+
+                            float v_light = l_sum / (float)l_count;
+                            corner_sh[v] = shade[f] * v_light * v_ao;
                         }
-                        #undef S
-                        ao_ptr = ao;
                     }
 
                     emit_face(mb, assets, f, g_block_tiles[id][f],
                               (float)(c->cx * CHUNK_SIZE + lx),
                               (float)y,
                               (float)(c->cz * CHUNK_SIZE + lz),
-                              h, sh, tt, tg2, tb2, ao_ptr);
+                              h, corner_sh, tt, tg2, tb2);
                 }
             }
         }
@@ -1559,7 +1709,7 @@ static void sync_chunks(Renderer *r, World *w, Vec3 eye, int budget, bool all) {
     /* 2. Dispatch chunk meshing jobs */
     if (!r->all_built || all) {
         bool any_missing = false;
-        int submit_limit = all ? 999999 : 16;
+        int submit_limit = all ? 999999 : (r->pool ? 16 : 4);
         int submitted = 0;
         for (int rad = 0; rad <= r->render_radius; rad++) {
             if (!all && submitted >= submit_limit) {
@@ -1617,6 +1767,8 @@ static void sync_chunks(Renderer *r, World *w, Vec3 eye, int budget, bool all) {
 mesh_dispatch_done:;
         if (all && r->pool) {
             thread_pool_wait_idle(r->pool);
+        }
+        if ((all && r->pool) || (!r->pool && r->completed_count > 0)) {
             while (1) {
                 CompletedMesh cm;
                 pthread_mutex_lock((pthread_mutex_t *)r->completed_mutex);
@@ -1804,9 +1956,10 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
 
-#if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
+
+#if MCED_USE_GL
     /* Fog handling for underwater, under-lava, and atmosphere */
     if (r->submerged_fluid == 1) {
         /* Dense murky underwater fog */
@@ -1833,6 +1986,7 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
     } else {
         glDisable(GL_FOG);
     }
+#endif
 
     /* Ambient scene lighting based on day/night cycle and submerged state */
     glEnable(GL_LIGHTING);
@@ -1868,7 +2022,6 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
         amb[0] = 0.25f; amb[1] = 0.28f; amb[2] = 0.40f; amb[3] = 1.0f;
     }
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT, amb);
-#endif
 
     r->last_quads = 0;
     r->last_chunks = 0;
@@ -1914,9 +2067,9 @@ void renderer_world(Renderer *r, World *w, Vec3 eye, float yaw, float pitch, int
         r->last_chunks++;
     }
 
-#if MCED_USE_GL
     glDisable(GL_LIGHTING);
     glDisable(GL_ALPHA_TEST);
+#if MCED_USE_GL
     glDisable(GL_FOG);
 #endif
 
@@ -1971,10 +2124,8 @@ void renderer_draw_break_progress(Renderer *r, int bx, int by, int bz, float pro
     glEnable(GL_BLEND);
     glBlendFunc(GL_DST_COLOR, GL_SRC_COLOR);
     glDepthMask(0);
-#if MCED_USE_GL
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(-2.0f, -2.0f);
-#endif
 
     glColor3f(1.0f, 1.0f, 1.0f);
     float x = (float)bx, y = (float)by, z = (float)bz;
@@ -2013,9 +2164,7 @@ void renderer_draw_break_progress(Renderer *r, int bx, int by, int bz, float pro
     glTexCoord2f(u1, v0); glVertex3f(x + 1.0f + e, y + 1.0f + e, z - e);
     glEnd();
 
-#if MCED_USE_GL
     glDisable(GL_POLYGON_OFFSET_FILL);
-#endif
     glDepthMask(1);
     glDisable(GL_BLEND);
 }
@@ -2045,6 +2194,8 @@ static RenderParticle *particle_alloc(Renderer *r) {
    Flat-coloured chips avoid texture filtering artefacts at the tiny
    on-screen size of a particle, and they still look like the block. */
 static void particle_pick_tile(Renderer *r, RenderParticle *p, uint8_t block) {
+    if (!r || !r->assets)
+        return;
     int face = (int)(prand() * (float)FACE_COUNT);
     if (face >= FACE_COUNT)
         face = FACE_SOUTH;
@@ -2055,12 +2206,20 @@ static void particle_pick_tile(Renderer *r, RenderParticle *p, uint8_t block) {
     int oy = (int)(prand() * 16.0f);
     if (ox > 15) ox = 15;
     if (oy > 15) oy = 15;
-    const uint8_t *px = r->assets->atlas_rgb +
-        ((size_t)(ty + oy) * MCED_ATLAS_SIZE + (tx + ox)) * 3;
     float shade = p->r;
-    p->r = fminf(1.0f, (float)px[0] / 255.0f * shade);
-    p->g = fminf(1.0f, (float)px[1] / 255.0f * shade);
-    p->b = fminf(1.0f, (float)px[2] / 255.0f * shade);
+    if (r->assets->atlas_rgba) {
+        const uint8_t *px = r->assets->atlas_rgba +
+            ((size_t)(ty + oy) * MCED_ATLAS_SIZE + (tx + ox)) * 4;
+        p->r = fminf(1.0f, (float)px[0] / 255.0f * shade);
+        p->g = fminf(1.0f, (float)px[1] / 255.0f * shade);
+        p->b = fminf(1.0f, (float)px[2] / 255.0f * shade);
+    } else if (r->assets->atlas_rgb) {
+        const uint8_t *px = r->assets->atlas_rgb +
+            ((size_t)(ty + oy) * MCED_ATLAS_SIZE + (tx + ox)) * 3;
+        p->r = fminf(1.0f, (float)px[0] / 255.0f * shade);
+        p->g = fminf(1.0f, (float)px[1] / 255.0f * shade);
+        p->b = fminf(1.0f, (float)px[2] / 255.0f * shade);
+    }
 }
 
 static void particle_common(RenderParticle *p, float life, float size) {
@@ -2241,10 +2400,8 @@ void renderer_dropped_item(Renderer *r, uint8_t block, Vec3 pos, float rot, floa
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, r->atlas_tex);
-#if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
-#endif
     glDisable(GL_BLEND);
 
     const BlockDef *def = &g_block_defs[block];
@@ -2278,9 +2435,7 @@ void renderer_dropped_item(Renderer *r, uint8_t block, Vec3 pos, float rot, floa
         glEnd();
         glPopMatrix();
         glEnable(GL_CULL_FACE);
-#if MCED_USE_GL
         glDisable(GL_ALPHA_TEST);
-#endif
         return;
     }
 
@@ -2537,10 +2692,8 @@ void renderer_hand(Renderer *r, uint8_t held_block, float swing_timer, float bob
 
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, r->atlas_tex);
-#if MCED_USE_GL
         glEnable(GL_ALPHA_TEST);
         glAlphaFunc(GL_GREATER, 0.1f);
-#endif
 
         if (is_flat) {
             glDisable(GL_CULL_FACE);
@@ -2641,9 +2794,7 @@ void renderer_hand(Renderer *r, uint8_t held_block, float swing_timer, float bob
             }
             glPopMatrix();
         }
-#if MCED_USE_GL
         glDisable(GL_ALPHA_TEST);
-#endif
     }
 
     glDisable(GL_CULL_FACE);
@@ -2715,9 +2866,7 @@ void renderer_menu_background(Renderer *r) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_BLEND);
     glEnable(GL_TEXTURE_2D);
-#if MCED_USE_GL
     glDisable(GL_ALPHA_TEST);
-#endif
 
     /* Rotation matching vanilla Minecraft Java Edition */
     struct timespec ts;
@@ -3123,10 +3272,8 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
     if (is_flat) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#if MCED_USE_GL
         glEnable(GL_ALPHA_TEST);
         glAlphaFunc(GL_GREATER, 0.1f);
-#endif
         assets_tile_uv(r->assets, g_block_tiles[block][FACE_TOP], &u0, &v0, &u1, &v1);
         float cr = (def->tint_mode != TINT_NONE) ? def->tint_r : 1.0f;
         float cg = (def->tint_mode != TINT_NONE) ? def->tint_g : 1.0f;
@@ -3138,9 +3285,7 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
         glTexCoord2f(u1, v1); glVertex2f(x + size, y + size);
         glTexCoord2f(u0, v1); glVertex2f(x, y + size);
         glEnd();
-#if MCED_USE_GL
         glDisable(GL_ALPHA_TEST);
-#endif
         glDisable(GL_BLEND);
         glDisable(GL_TEXTURE_2D);
         return;
@@ -3148,10 +3293,8 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#if MCED_USE_GL
     glEnable(GL_ALPHA_TEST);
     glAlphaFunc(GL_GREATER, 0.1f);
-#endif
 
     float cx = x + size * 0.5f;
     float w  = size * 0.42f;
@@ -3201,9 +3344,7 @@ void renderer_block_icon(Renderer *r, uint8_t block, float x, float y, float siz
     glTexCoord2f(u0, v1); glVertex2f(cx, cy + h);
     glEnd();
 
-#if MCED_USE_GL
     glDisable(GL_ALPHA_TEST);
-#endif
     glDisable(GL_BLEND);
     glDisable(GL_TEXTURE_2D);
 }

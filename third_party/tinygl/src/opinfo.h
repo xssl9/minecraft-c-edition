@@ -73,6 +73,7 @@ ADD_OP(PolygonOffset, 2, "%f %f")
 /* blending */
 ADD_OP(BlendEquation, 1, "%d")
 ADD_OP(BlendFunc, 2, "%d %d")
+ADD_OP(AlphaFunc, 2, "%d %f")
 
 /* point size */
 ADD_OP(PointSize, 1, "%f")

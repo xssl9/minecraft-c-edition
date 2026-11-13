@@ -10,6 +10,10 @@
 #else
 #include "GL/gl.h"
 #include "zbuffer.h"
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE GL_CLAMP
+#endif
+static inline void glLineWidth(float w) { (void)w; }
 #endif
 
 #include <stdbool.h>

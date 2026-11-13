@@ -35,6 +35,7 @@ typedef struct {
 
 bool assets_load(Assets *a, const char *root);
 void assets_free(Assets *a);
+void assets_add_tile(Assets *a, const char *name, int tile);
 
 int assets_tile(const Assets *a, const char *name);
 void assets_tile_uv(const Assets *a, int tile, float *u0, float *v0, float *u1, float *v1);

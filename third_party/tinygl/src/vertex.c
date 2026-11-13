@@ -65,7 +65,7 @@ void glopBegin(GLParam* p) {
 
 	if (c->matrix_model_projection_updated) {
 
-		if (c->lighting_enabled) {
+		if (c->lighting_enabled && c->first_light != NULL) {
 			/* precompute inverse modelview */
 			gl_M4_Inv(&tmp, c->matrix_stack_ptr[0]);
 			gl_M4_Transpose(&c->matrix_model_view_inv, &tmp);
@@ -144,6 +144,7 @@ static void gl_transform_to_viewport_vertex_c(GLVertex* v) {
 	v->zp.r = (GLint)(v->color.v[0] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
 	v->zp.g = (GLint)(v->color.v[1] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
 	v->zp.b = (GLint)(v->color.v[2] * COLOR_CORRECTED_MULT_MASK + COLOR_MIN_MULT) & COLOR_MASK;
+	v->zp.a = (GLint)(v->color.v[3] * 255.0f);
 
 	if (c->texture_2d_enabled) {
 		v->zp.s = (GLint)(v->tex_coord.X * (ZB_POINT_S_MAX - ZB_POINT_S_MIN) + ZB_POINT_S_MIN); 
@@ -155,7 +156,7 @@ static void gl_vertex_transform(GLVertex* v) {
 	GLfloat* m;
 	GLContext* c = gl_get_context();
 
-	if (c->lighting_enabled)
+	if (c->lighting_enabled && c->first_light != NULL)
 
 	{
 		/* eye coordinates needed for lighting */
@@ -234,9 +235,15 @@ void glopVertex(GLParam* p) {
 	/* color */
 
 	if (c->lighting_enabled) {
-		gl_shade_vertex(v);
+		if (c->first_light != NULL) {
+			gl_shade_vertex(v);
 #include "error_check.h"
-		
+		} else {
+			v->color.v[0] = c->current_color.X * c->ambient_light_model.v[0];
+			v->color.v[1] = c->current_color.Y * c->ambient_light_model.v[1];
+			v->color.v[2] = c->current_color.Z * c->ambient_light_model.v[2];
+			v->color.v[3] = c->current_color.W;
+		}
 	} else {
 		v->color = c->current_color;
 	}
